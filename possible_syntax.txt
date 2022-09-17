@@ -1,0 +1,62 @@
+module(
+    call_ctx_count = 64,
+    data_stack_size = 4096,
+) 
+{
+    //clib:printf
+    import("clib") proc printf;
+    import("clib") proc puts;
+    import("clib") proc fwrite;
+    import("clib") proc fread;
+
+    import("clib") invar stdout: *invar u8;
+    import("clib") var test_mem: u64;
+
+    include "libc.zyte";
+
+    //main procedure
+    export proc main {
+        move a0, 3;
+        move a1, 4;
+        move a2, 5;
+
+        icall printf;
+    }
+
+    //updated every frame
+    export proc on_update {
+        move c0, 1;
+        iadd c0, 1 c0;
+
+        //for (int i = 0; i < 10; i += 1) {}
+        branch:
+            iadd c0, 1, c0;
+            neql c0, 100, c1;
+
+            jumpif branch, c1;
+
+        move a0, c0;
+        iadd a0, 1, a0;
+        iext a0;
+
+        move a0, 0x1a;
+        move a1, 0x3f;
+        move a2, 0x46;
+
+        syscall 0x4e;
+
+        move a7, c1;
+
+        call internal;
+
+        return; 
+    }
+
+    proc internal {
+        iadd a0, 3, a0;
+        imul a0, 5, a1;
+        idiv a0, 2, a7;
+
+        return;
+    }
+}
