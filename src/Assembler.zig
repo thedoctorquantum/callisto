@@ -27,7 +27,22 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
     var instruction: Vm.Instruction = .{ .opcode = .nullop, .operands = [_]Vm.Instruction.Operand { .{ .register = 0 }, .{ .register = 0 }, .{ .register = 0 } } }; 
     var operand_index: usize = 0;
 
-    var labels = std.StringHashMap(usize).init(self.allocator);
+    var preinit_data = std.ArrayList(u8).init(self.allocator);
+    defer preinit_data.deinit();
+
+    const LabelType = enum 
+    {
+        instruction,
+        data
+    };
+
+    const Label = struct 
+    {
+        address: usize,
+        tag: LabelType,
+    };
+
+    var labels = std.StringHashMap(Label).init(self.allocator);
     defer labels.deinit(); 
 
     var label_patches = std.ArrayList(struct 
@@ -53,13 +68,27 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
                     },
                     .identifier => {
                         //Should use look ahead
-                        const next = tokenizer.next() orelse break;
+                        var next = tokenizer.next() orelse break;
 
                         std.log.info("token({}): {s}", .{ next.tag, source[next.start..next.end] });
 
                         if (next.tag != .colon) continue;
 
-                        try labels.put(source[token.start..token.end], instructions.items.len);
+                        next = tokenizer.next() orelse break;
+
+                        if (next.tag == .opcode)
+                        {
+                            try labels.put(source[token.start..token.end], .{ .address = instructions.items.len, .tag = .instruction });
+                        }
+                        else if (next.tag == .literal_string)
+                        {
+                            //static address
+                            try labels.put(source[token.start..token.end], .{ .address = preinit_data.items.len, .tag = .data });
+
+                            try preinit_data.appendSlice(source[token.start..token.end]);
+                        }
+
+                        tokenizer.index -= next.end - next.start;
                     },
                     else => {},
                 }
@@ -133,11 +162,11 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
     for (label_patches.items) |patch|
     {
         instructions.items[patch.instruction_index].operands[patch.operand_index] = .{                            
-            .immediate = labels.get(patch.label_name) orelse {
+            .immediate = (labels.get(patch.label_name) orelse {
                 std.log.info("Label {s} not found", .{ patch.label_name });
 
                 return error.LabelNotFound;
-            }
+            }).address
         };        
     }    
 

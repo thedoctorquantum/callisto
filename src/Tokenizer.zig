@@ -16,6 +16,7 @@ pub fn next(self: *Tokenizer) ?Token
         literal_hex,
         literal_binary,
         literal_char,
+        literal_string,
         slash,
         single_comment,
         multi_comment,
@@ -44,6 +45,10 @@ pub fn next(self: *Tokenizer) ?Token
                     '\'' => {
                         state = .literal_char;
                         result.tag = .literal_char;
+                    },
+                    '\"' => {
+                        state = .literal_string;
+                        result.tag = .literal_string;
                     },
                     '0'...'9', '-', => {
                         if (char == '-')
@@ -159,6 +164,14 @@ pub fn next(self: *Tokenizer) ?Token
                     else => break,
                 }
             },
+            .literal_string => {
+                switch (char)
+                {
+                    'a'...'z', 'A'...'Z', '0'...'9', '\"' => {},
+                    // '\'' => break,
+                    else => break,
+                }
+            },
             .slash => {
                 switch (char)
                 {
@@ -240,6 +253,7 @@ pub const Token = struct
         literal_hex,
         literal_binary,
         literal_char,
+        literal_string,
         opcode,
         context_register,
         argument_register,

@@ -13,6 +13,8 @@ fn nativeTest(vm: *Vm) void
     vm.setRegister(.a7, a0.* + a1.*);
     
     std.log.info("Hello from nativeTest!", .{});
+
+    (@intToPtr(*allowzero u8, 0)).* = 0; //lol
 }
 
 fn envMulAdd(a: u64, b: u64, c: u64) u64 
@@ -27,6 +29,16 @@ fn envMulAdd(a: u64, b: u64, c: u64) u64
 fn envPow(a: u64, b: u64) u64 
 {
     return std.math.pow(u64, a, b);
+}
+
+fn puts(string: []const u8) void 
+{
+    std.io.getStdOut().writer().print("puts: {s}\n", .{ string }) catch unreachable;
+}
+
+fn alloc(size: u64) []const u8
+{
+    return @ptrCast([*]const u8, std.c.malloc(size))[0..size];
 }
 
 pub usingnamespace if (@import("root") == @This()) struct {
@@ -261,6 +273,8 @@ fn run() !void
                 &nativeTest,
                 Vm.extFn(envMulAdd),
                 Vm.extFn(envPow),
+                Vm.extFn(puts),
+                Vm.extFn(alloc),
             },
         };
 
@@ -279,8 +293,6 @@ fn run() !void
                 error.BreakInstruction => std.log.info("Breakpoint hit", .{}),
                 else => return err,
             };
-
-            // (@intToPtr(*allowzero u8, 0)).* = 0; //lol
         }
 
         return;

@@ -1,26 +1,32 @@
 
-/*
-//entrypoint proc
-export proc main {
-    call add;
-};
-
-export proc add {
-    iadd a0, 1, a1;
-    isub a2, 3, a3;
-
-    jumpif a0, branch;
-        iadd a0, a1, a2;
-        return;
-    branch: 
-        nullop;
-};
-*/
 
 //entrypoint procedure
 //points the vm to main
 main:
-    extcall 0; 
+    //alloc "hello, world";
+    move a0, 10;
+    extcall 4; //alloc(10)
+
+    move c0, a7;
+
+message: "hello, world";
+
+    write8 c0, 'h';
+    iadd c0, 1, c0;
+    write8 c0, 'e';
+    iadd c0, 1, c0;
+    write8 c0, 'l';
+    iadd c0, 1, c0;
+    write8 c0, 'l';
+    iadd c0, 1, c0;
+    write8 c0, 'o';
+    iadd c0, 1, c0;
+
+    move a0, a7;
+    move a1, 5;
+    extcall 3; //puts(a0[0..a1])
+
+    return;
 
     iadd 3, 5, c0;
     isub c0, 3, c1;

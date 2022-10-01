@@ -187,12 +187,30 @@ pub fn extFn(comptime proc: anytype) *const fn(*Vm) void
             {
                 const ArgType = @TypeOf(args[i]);
 
-                comptime std.debug.assert(
-                    std.meta.trait.isIntegral(ArgType) or
-                    std.meta.trait.isFloat(ArgType)
-                );
+                switch (@typeInfo(ArgType))
+                {
+                    .Int => {
+                        args[i] = vm.getRegister(@intToEnum(Register, 8 + register_index)).*;
+                    },
+                    .Pointer => |pointer| {
+                        switch (pointer.size)
+                        {
+                            .One, .Many => {
+                                args[i] = @intToPtr(ArgType, vm.getRegister(@intToEnum(Register, 8 + register_index)).*);
+                            },
+                            .Slice => {
+                                const register0 = vm.getRegister(@intToEnum(Register, 8 + register_index)).*;
+                                const register1 = vm.getRegister(@intToEnum(Register, 8 + register_index + 1)).*;
 
-                args[i] = vm.getRegister(@intToEnum(Register, 8 + register_index)).*;
+                                register_index += 1;
+
+                                args[i] = @intToPtr([*]std.meta.Child(ArgType), register0)[0..register1];
+                            },
+                            else => unreachable 
+                        }
+                    },
+                    else => unreachable
+                }
 
                 register_index += 1;
             }
@@ -202,9 +220,29 @@ pub fn extFn(comptime proc: anytype) *const fn(*Vm) void
                 proc,
                 args,
             );
+
+            switch (@typeInfo(@TypeOf(return_value)))
+            {
+                .Int => {
+                    vm.setRegister(.a7, return_value);
+                },
+                .Pointer => |pointer| {
+                    switch (pointer.size)
+                    {
+                        .One, .Many => {
+                            vm.setRegister(.a7, @intCast(u64, @ptrToInt(return_value)));
+                        },
+                        .Slice => {
+                            vm.setRegister(.a7, @ptrToInt(return_value.ptr));
+                            vm.setRegister(.a6, @intCast(u64, return_value.len));
+                        },
+                        else => unreachable 
+                    }
+                },
+                .Void => {},
+                else => unreachable
+            }
             
-            //Write return value onto the stack/registers
-            vm.setRegister(.a7, return_value);
         }
     };
 
@@ -325,7 +363,7 @@ pub fn execute(self: *Vm, executable: Executable, instruction_pointer: usize) Ex
             .read64 => {},
             .write8 => 
             {
-                @intToPtr(*allowzero u8, self.operandValue(instruction.operands[0])).* = @intCast(u8, self.operandValue(instruction.operands[0]));
+                @intToPtr(*allowzero u8, self.operandValue(instruction.operands[0])).* = @intCast(u8, self.operandValue(instruction.operands[1]));
             },
             .write16 => {},
             .write32 => {},
