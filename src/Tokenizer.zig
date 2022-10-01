@@ -130,6 +130,10 @@ pub fn next(self: *Tokenizer) ?Token
                         {
                             result.tag = .argument_register;
                         }
+                        else if (std.mem.eql(u8, "export", string))
+                        {
+                            result.tag = .keyword_export;
+                        }
 
                         break;
                     },
@@ -249,6 +253,8 @@ pub const Token = struct
         comma,
         colon,
         semicolon,
+        left_brace,
+        right_brace,
         literal_integer,
         literal_hex,
         literal_binary,
@@ -257,8 +263,7 @@ pub const Token = struct
         opcode,
         context_register,
         argument_register,
-        left_brace,
-        right_brace,
+        keyword_export,
     };
 
     pub fn getOpcode(string: []const u8) ?Vm.OpCode

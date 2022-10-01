@@ -3,6 +3,7 @@ const Assembler = @This();
 const std = @import("std");
 const Vm = @import("Vm.zig");
 const Tokenizer = @import("Tokenizer.zig");
+const Module = @import("Module.zig");
 
 allocator: std.mem.Allocator,
 
@@ -13,7 +14,7 @@ pub const Operand = union(enum)
 };
 
 ///Simple assembler, not a real parser
-pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruction)
+pub fn assemble(self: *Assembler, source: []const u8) !Module
 {
     var tokenizer = Tokenizer { .source = source, };
 
@@ -24,11 +25,19 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
     } = .start;
     
     var instructions = std.ArrayList(Vm.Instruction).init(self.allocator);
+    defer instructions.deinit();
+
     var instruction: Vm.Instruction = .{ .opcode = .nullop, .operands = [_]Vm.Instruction.Operand { .{ .register = 0 }, .{ .register = 0 }, .{ .register = 0 } } }; 
     var operand_index: usize = 0;
 
     var preinit_data = std.ArrayList(u8).init(self.allocator);
     defer preinit_data.deinit();
+
+    var exported_symbols = std.ArrayList(Module.SymbolExport).init(self.allocator);
+    defer exported_symbols.deinit();
+
+    var exported_symbol_text = std.ArrayList(u8).init(self.allocator);
+    defer exported_symbol_text.deinit();
 
     const LabelType = enum 
     {
@@ -53,6 +62,8 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
     }).init(self.allocator);
     defer label_patches.deinit();
 
+    var is_export = false;
+
     while (tokenizer.next()) |token|
     {
         std.log.info("token({}): {s}", .{ token.tag, source[token.start..token.end] });
@@ -65,6 +76,9 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
                     .opcode => {
                         state = .instruction;
                         instruction.opcode = Tokenizer.Token.getOpcode(source[token.start..token.end]) orelse unreachable;
+                    },
+                    .keyword_export => {
+                        is_export = true;
                     },
                     .identifier => {
                         //Should use look ahead
@@ -79,6 +93,20 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
                         if (next.tag == .opcode)
                         {
                             try labels.put(source[token.start..token.end], .{ .address = instructions.items.len, .tag = .instruction });
+
+                            if (is_export)
+                            {
+                                try exported_symbols.append(.{
+                                    .tag = .procedure,
+                                    .offset = @intCast(u32, exported_symbol_text.items.len),
+                                    .size = @intCast(u32, source[token.start..token.end].len),
+                                    .address = instructions.items.len,
+                                });
+
+                                try exported_symbol_text.appendSlice(source[token.start..token.end]);
+
+                                is_export = false;
+                            }
                         }
                         else if (next.tag == .literal_string)
                         {
@@ -170,5 +198,42 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
         };        
     }    
 
-    return instructions;
+    var module = Module {
+        .allocator = self.allocator,
+        .sections = .{},
+        .sections_content = .{},
+    };
+
+    _ = try module.addSectionData(.instructions, @ptrCast([*]u8, instructions.items.ptr)[0 .. instructions.items.len * @sizeOf(Vm.Instruction)]);
+
+    if (preinit_data.items.len != 0)
+    {
+        _ = try module.addSectionData(.data, preinit_data.items);
+    }
+
+    const export_section_data = try self.allocator.alloc(
+        u8, 
+        @sizeOf(Module.ExportSectionHeader) + 
+        (exported_symbols.items.len * @sizeOf(Module.SymbolExport)) +
+        exported_symbol_text.items.len
+    );
+    defer self.allocator.free(export_section_data);
+
+    var export_section_fba = std.heap.FixedBufferAllocator.init(export_section_data);
+
+    const export_section_header = try export_section_fba.allocator().create(Module.ExportSectionHeader);
+
+    export_section_header.symbol_count = exported_symbols.items.len;
+
+    std.mem.copy(
+        Module.SymbolExport, 
+        try export_section_fba.allocator().alloc(Module.SymbolExport, exported_symbols.items.len), 
+        exported_symbols.items
+    );
+
+    std.mem.copy(u8, try export_section_fba.allocator().alloc(u8, exported_symbol_text.items.len), exported_symbol_text.items);
+
+    _ = try module.addSectionData(.exports, export_section_data);
+
+    return module;
 }

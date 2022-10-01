@@ -2,7 +2,7 @@
 
 //entrypoint procedure
 //points the vm to main
-main:
+export main:
     //alloc "hello, world";
     move a0, 10;
     extcall 4; //alloc(10)

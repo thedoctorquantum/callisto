@@ -89,39 +89,9 @@ fn run() !void
         const source = try std.fs.cwd().readFileAlloc(allocator, source_file, std.math.maxInt(usize));
         defer allocator.free(source);
 
-        const instructions = try assembler.assemble(source);
-        defer instructions.deinit();
-
-        var module = Module {
-            .allocator = allocator,
-            .sections = .{},
-            .sections_content = .{},
-        };
+        var module = try assembler.assemble(source);
         defer module.sections.deinit(module.allocator);
         defer module.sections_content.deinit(module.allocator);
-
-        _ = try module.addSectionData(.instructions, @ptrCast([*]u8, instructions.items.ptr)[0 .. instructions.items.len * @sizeOf(Vm.Instruction)]);
-        
-        var export_section_data: [4096]u8 = undefined;
-
-        var fba = std.heap.FixedBufferAllocator.init(&export_section_data);
-
-        const export_section_header = try fba.allocator().create(Module.ExportSectionHeader);
-
-        export_section_header.symbol_count = 1;
-
-        const exports = try fba.allocator().alloc(Module.SymbolExport, 1);
-
-        exports[0] = .{
-            .tag = .procedure,
-            .offset = 0,
-            .size = 4,
-            .address = 0,
-        };
-
-        _ = try fba.allocator().dupe(u8, "main");
-
-        _ = try module.addSectionData(.exports, export_section_data[0..fba.end_index]);
 
         if (clap_result.args.interpreter) |interpreter|
         {
@@ -168,6 +138,8 @@ fn run() !void
             try stdout.print("Exports: \n", .{});
 
             var offset: usize = 0;
+
+            @setRuntimeSafety(false);
 
             const header = @ptrCast(*const Module.ExportSectionHeader, @alignCast(@alignOf(Module.ExportSectionHeader), exports_bytes.ptr));
 
@@ -236,6 +208,8 @@ fn run() !void
         const main_address = if (module.getSectionData(.exports, 0)) |exports_bytes| block: 
         {
             var offset: usize = 0;
+
+            @setRuntimeSafety(false);
 
             const header = @ptrCast(*const Module.ExportSectionHeader, @alignCast(@alignOf(Module.ExportSectionHeader), exports_bytes.ptr));
 
