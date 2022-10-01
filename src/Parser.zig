@@ -45,11 +45,11 @@ pub fn parseInstruction(self: @This()) !void
 
     while (true)
     {
-        
+        try parseIntegerLiteral();
     }
 }
 
-pub fn parseIntegerLiteral(self: @This()) !void 
+pub fn parseIntegerLiteral(self: @This()) !u64 
 {
     const decimal = self.eatToken(.literal_integer);
 

@@ -3,7 +3,7 @@ Section 0: id = instructions, size = 1680
 Section 1: id = exports, size = 36
 
 Exports: 
-  Symbol 0: procedure main 00000000
+    Symbol 0: procedure main 00000000
 
 Instructions: 
     address   op name

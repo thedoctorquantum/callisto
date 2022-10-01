@@ -9,6 +9,14 @@ pub const OpCode = enum(u8)
     @"unreachable", //Unrecoverable Trap
     @"break", //Recoverable Trap
     move,
+    read8,
+    read16,
+    read32,
+    read64,
+    write8,
+    write16,
+    write32,
+    write64,
     iadd,
     isub,
     imul, //imul r, im, r 
@@ -151,7 +159,7 @@ pub fn extFn(comptime proc: anytype) *const fn(*Vm) void
     {
         pub fn function(vm: *Vm) void
         {
-            comptime var args_type_fields: [arg_types.len]std.builtin.TypeInfo.StructField = undefined;
+            comptime var args_type_fields: [arg_types.len]std.builtin.Type.StructField = undefined;
 
             inline for (arg_types) |arg_type, i|
             {
@@ -168,7 +176,7 @@ pub fn extFn(comptime proc: anytype) *const fn(*Vm) void
                 .layout = .Auto,
                 .is_tuple = true,
                 .fields = &args_type_fields,
-                .decls = &[_]std.builtin.TypeInfo.Declaration {},
+                .decls = &[_]std.builtin.Type.Declaration {},
             }});
 
             var args: ArgsType = undefined;
@@ -248,16 +256,41 @@ pub const ExecuteError = error
     DivisionByZero,
     StackOverflow,
     StackUnderflow,
+    MemoryAccessViolation,
 };
+
+const jump_buf = extern struct { a: c_int, b: c_int, c: c_int, d: c_int, e: c_int, f: c_int }; 
+
+extern "c" fn setjmp(buf: *jump_buf) callconv(.C) c_int;
+extern "c" fn longjmp(buf: *jump_buf, _: c_int) callconv(.C) void;
+
+fn segfaultHandler(_: c_int) callconv(.C) void
+{
+    longjmp(&segfault_jump_buf, 1);
+
+    unreachable;
+}
+
+var segfault_jump_buf: jump_buf = undefined;
 
 pub fn execute(self: *Vm, executable: Executable, instruction_pointer: usize) ExecuteError!void
 {
-    @setRuntimeSafety(false);
-
     self.program_pointer = instruction_pointer;
+
+    var old_sigsegv_action: std.os.Sigaction = undefined;
+
+    std.os.sigaction(std.os.SIG.SEGV, &.{ .handler = .{ .handler = &segfaultHandler }, .flags = undefined, .mask = undefined }, &old_sigsegv_action) catch unreachable;
+    defer std.os.sigaction(std.os.SIG.SEGV, &old_sigsegv_action, null) catch unreachable;
+
+    if (setjmp(&segfault_jump_buf) != 0)
+    {
+        return error.MemoryAccessViolation;
+    }
 
     while (true) : (self.program_pointer += 1)
     {
+        @setRuntimeSafety(false);
+
         if (self.program_pointer >= executable.instructions.len)
         {
             return error.IllegalInstructionAccess;
@@ -283,6 +316,20 @@ pub fn execute(self: *Vm, executable: Executable, instruction_pointer: usize) Ex
             {
                 self.registers[instruction.operands[0].register] = self.operandValue(instruction.operands[1]);
             },
+            .read8 => 
+            {
+                self.registers[instruction.operands[0].register] = @intToPtr(*allowzero const u8, self.operandValue(instruction.operands[1])).*;
+            },
+            .read16 => {},
+            .read32 => {},
+            .read64 => {},
+            .write8 => 
+            {
+                @intToPtr(*allowzero u8, self.operandValue(instruction.operands[0])).* = @intCast(u8, self.operandValue(instruction.operands[0]));
+            },
+            .write16 => {},
+            .write32 => {},
+            .write64 => {},
             .iadd => 
             {
                 self.registers[instruction.operands[2].register] = self.operandValue(instruction.operands[0]) +% self.operandValue(instruction.operands[1]);

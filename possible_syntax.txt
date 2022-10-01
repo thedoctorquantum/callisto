@@ -1,62 +1,61 @@
-module(
-    call_ctx_count = 64,
-    data_stack_size = 4096,
-) 
-{
-    //clib:printf
-    import("clib") proc printf;
-    import("clib") proc puts;
-    import("clib") proc fwrite;
-    import("clib") proc fread;
+//instrinsics $include, $sizeof, $inline_call
 
-    import("clib") invar stdout: *invar u8;
-    import("clib") var test_mem: u64;
+$module_stack(64000);
+$module_call_stack(64);
 
-    include "libc.zyte";
+$impdef(imp0, "syscall");
 
-    //main procedure
-    export proc main {
-        move a0, 3;
-        move a1, 4;
-        move a2, 5;
+const file = $include("file.zasm");
+const cstd = $include("cstd.zasm");
 
-        icall printf;
-    }
+var x: []v8 = "lolflll";
+var y: v16 = 32;
 
-    //updated every frame
-    export proc on_update {
-        move c0, 1;
-        iadd c0, 1 c0;
+var x = "hello, world";
+export var stdout = 0;
 
-        //for (int i = 0; i < 10; i += 1) {}
-        branch:
-            iadd c0, 1, c0;
-            neql c0, 100, c1;
+import var x: v32;
 
-            jumpif branch, c1;
+const value_constant: v8 = 0xf3;
 
-        move a0, c0;
-        iadd a0, 1, a0;
-        iext a0;
+import proc printf from wasi;
+import proc puts from wasi;
+import proc fopen from wasi;
+import proc fread from wasi;
 
-        move a0, 0x1a;
-        move a1, 0x3f;
-        move a2, 0x46;
+export proc _start = main;
 
-        syscall 0x4e;
+$opt_level("none");
 
-        move a7, c1;
+const addr = $zalloc(300);
 
-        call internal;
+export proc main {
+    //define static variable
+    var x: v32 = 0;
 
-        return; 
-    }
+    gread r0, &y;
+    gaddr r0, &y;
 
-    proc internal {
-        iadd a0, 3, a0;
-        imul a0, 5, a1;
-        idiv a0, 2, a7;
+    $inline_call(lol1);
 
-        return;
-    }
-}
+    iadd c0, c1, c2;
+    isub c2, 3, c2;
+    iadd c2, -5, c3;
+
+    move c2, 0;
+
+    loop:
+        move a0, &message;
+        move a1, $sizeof(message);
+        call printf;
+
+        var message = "hello, world"; 
+
+        eql c2, 100, c3;
+        iadd c2, 1, c2;
+        jumpif c3, loop;
+};
+
+export proc lol1 {
+    
+};

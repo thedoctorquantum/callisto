@@ -15,6 +15,7 @@ pub fn next(self: *Tokenizer) ?Token
         literal_integer,
         literal_hex,
         literal_binary,
+        literal_char,
         slash,
         single_comment,
         multi_comment,
@@ -36,37 +37,49 @@ pub fn next(self: *Tokenizer) ?Token
                     ' ', '\t', '\r', '\n', => {
                         result.start = self.index + 1;
                     },
-                    'a'...'z', 'A'...'Z', '_' => {
+                    'a'...'z', 'A'...'Z', '_', => {
                         state = .identifier;
                         result.tag = .identifier;
                     },
+                    '\'' => {
+                        state = .literal_char;
+                        result.tag = .literal_char;
+                    },
                     '0'...'9', '-', => {
-                        switch (std.ascii.toLower(self.source[self.index + 1]))
-                        {
-                            'B', 'b' => {
-                                state = .literal_binary;
-                                result.tag = .literal_binary;
-                            },
-                            else => {
-                                state = .literal_integer;
-                                result.tag = .literal_integer;
-                            },
-                        }
-
-                        if (std.ascii.toLower(self.source[self.index + 1]) == 'x')
-                        {
-                            state = .literal_hex;
-                            result.tag = .literal_hex;
-                        }
-                        else if (std.ascii.toLower(self.source[self.index + 1]) == 'b')
-                        {
-                            state = .literal_binary;
-                            result.tag = .literal_binary;
-                        }
-                        else 
+                        if (char == '-')
                         {
                             state = .literal_integer;
                             result.tag = .literal_integer;
+                        }
+                        else 
+                        {
+                            switch (std.ascii.toLower(self.source[self.index + 1]))
+                            {
+                                'B', 'b' => {
+                                    state = .literal_binary;
+                                    result.tag = .literal_binary;
+                                },
+                                else => {
+                                    state = .literal_integer;
+                                    result.tag = .literal_integer;
+                                },
+                            }
+
+                            if (std.ascii.toLower(self.source[self.index + 1]) == 'x')
+                            {
+                                state = .literal_hex;
+                                result.tag = .literal_hex;
+                            }
+                            else if (std.ascii.toLower(self.source[self.index + 1]) == 'b')
+                            {
+                                state = .literal_binary;
+                                result.tag = .literal_binary;
+                            }
+                            else 
+                            {
+                                state = .literal_integer;
+                                result.tag = .literal_integer;
+                            }
                         }
                     },
                     '/' => {
@@ -121,9 +134,7 @@ pub fn next(self: *Tokenizer) ?Token
                 switch (char)
                 {
                     '0'...'9', '_' => {},
-                    else => {
-                        break;
-                    },
+                    else => break,
                 }
             },
             .literal_hex => {
@@ -137,6 +148,14 @@ pub fn next(self: *Tokenizer) ?Token
                 switch (char)
                 {
                     '0', '1', '_', 'b', 'B', => {},
+                    else => break,
+                }
+            },
+            .literal_char => {
+                switch (char)
+                {
+                    'a'...'z', 'A'...'Z', '0'...'9', '\'' => {},
+                    // '\'' => break,
                     else => break,
                 }
             },
@@ -220,6 +239,7 @@ pub const Token = struct
         literal_integer,
         literal_hex,
         literal_binary,
+        literal_char,
         opcode,
         context_register,
         argument_register,

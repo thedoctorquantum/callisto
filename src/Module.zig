@@ -2,6 +2,8 @@ const std = @import("std");
 
 allocator: std.mem.Allocator,
 
+//#!/home/zak/Dev/Zig/Zyte/zig-out/bin/zyte
+interpreter: ?[]const u8 = null,
 sections: std.ArrayListUnmanaged(Section),
 sections_content: std.ArrayListUnmanaged(u8),
 
@@ -140,10 +142,28 @@ pub fn decode(allocator: std.mem.Allocator, binary: []const u8) !@This()
         .sections = .{},
         .sections_content = .{},
     };
-
+    
     var head: usize = 0;
 
-    const header = @ptrCast(*const Header, binary.ptr + head);
+    //optional interpreter (shebang) section
+    if (std.mem.eql(u8, binary[0..2], "#!"))
+    {
+        head += 2;
+
+        for (binary[2..]) |byte|
+        {
+            head += 1;
+
+            if (byte == '\n')
+            {
+                break;
+            }
+        } 
+    }
+
+    @setRuntimeSafety(false);
+
+    const header = @ptrCast(*const Header, @alignCast(@alignOf(Header), binary.ptr + head));
 
     if (!std.mem.eql(u8, &header.identifier, "zyte")) return error.InvalidIdentifier;
 
@@ -184,8 +204,15 @@ pub fn encode(self: @This(), writer: anytype) !void
         .section_contents_size = self.sections_content.items.len,
     };
 
-    _ = try writer.write(std.mem.asBytes(&header));
+    if (self.interpreter) |interpreter|
+    {
+        _ = try writer.write("#!");
+        _ = try writer.write(interpreter);
+        _ = try writer.write("\n");
+    }
 
+    _ = try writer.write(std.mem.asBytes(&header));
+        
     for (self.sections.items) |section|
     {
         _ = try writer.write(std.mem.asBytes(&section));

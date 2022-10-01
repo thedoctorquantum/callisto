@@ -22,9 +22,9 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
         start,
         instruction,
     } = .start;
-
+    
     var instructions = std.ArrayList(Vm.Instruction).init(self.allocator);
-    var instruction: Vm.Instruction = undefined; 
+    var instruction: Vm.Instruction = .{ .opcode = .nullop, .operands = [_]Vm.Instruction.Operand { .{ .register = 0 }, .{ .register = 0 }, .{ .register = 0 } } }; 
     var operand_index: usize = 0;
 
     var labels = std.StringHashMap(usize).init(self.allocator);
@@ -41,7 +41,7 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
     while (tokenizer.next()) |token|
     {
         std.log.info("token({}): {s}", .{ token.tag, source[token.start..token.end] });
-
+        
         switch (state)
         {
             .start => {
@@ -99,6 +99,11 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
                             .immediate = @bitCast(u64, try std.fmt.parseInt(i64, source[token.start + 2..token.end], 2))
                         };
                     },
+                    .literal_char => {
+                        instruction.operands[operand_index] = .{
+                            .immediate = source[token.start + 1]
+                        };
+                    },
                     .identifier => {
                         try label_patches.append(.{ 
                             .instruction_index = instructions.items.len, 
@@ -133,8 +138,8 @@ pub fn assemble(self: *Assembler, source: []const u8) !std.ArrayList(Vm.Instruct
 
                 return error.LabelNotFound;
             }
-        };
-    }
+        };        
+    }    
 
     return instructions;
 }
