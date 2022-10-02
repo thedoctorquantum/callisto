@@ -32,84 +32,71 @@ pub fn next(self: *Tokenizer) ?Token
 
         switch (state)
         {
-            .start => {
-                switch (char)
-                {
-                    ' ', '\t', '\r', '\n', => {
-                        result.start = self.index + 1;
-                    },
-                    'a'...'z', 'A'...'Z', '_', => {
-                        state = .identifier;
-                        result.tag = .identifier;
-                    },
-                    '\'' => {
-                        state = .literal_char;
-                        result.tag = .literal_char;
-                    },
-                    '\"' => {
-                        state = .literal_string;
-                        result.tag = .literal_string;
-                    },
-                    '0'...'9', '-', => {
-                        if (char == '-')
+            .start => switch (char)
+            {
+                0 => break,
+                ' ', '\t', '\r', '\n', => {
+                    result.start = self.index + 1;
+                },
+                'a'...'z', 'A'...'Z', '_', => {
+                    state = .identifier;
+                    result.tag = .identifier;
+                },
+                '\'' => {
+                    state = .literal_char;
+                    result.tag = .literal_char;
+                },
+                '"' => {
+                    state = .literal_string;
+                    result.tag = .literal_string;
+                },
+                '0'...'9', '-', => {
+                    if (char == '-')
+                    {
+                        state = .literal_integer;
+                        result.tag = .literal_integer;
+                    }
+                    else 
+                    {
+                        switch (self.source[self.index + 1])
                         {
-                            state = .literal_integer;
-                            result.tag = .literal_integer;
-                        }
-                        else 
-                        {
-                            switch (std.ascii.toLower(self.source[self.index + 1]))
-                            {
-                                'B', 'b' => {
-                                    state = .literal_binary;
-                                    result.tag = .literal_binary;
-                                },
-                                else => {
-                                    state = .literal_integer;
-                                    result.tag = .literal_integer;
-                                },
-                            }
-
-                            if (std.ascii.toLower(self.source[self.index + 1]) == 'x')
-                            {
-                                state = .literal_hex;
-                                result.tag = .literal_hex;
-                            }
-                            else if (std.ascii.toLower(self.source[self.index + 1]) == 'b')
-                            {
+                            'B', 'b' => {
                                 state = .literal_binary;
                                 result.tag = .literal_binary;
-                            }
-                            else 
-                            {
+                            },
+                            'X', 'x' => {
+                                state = .literal_hex;
+                                result.tag = .literal_hex;
+                            },
+                            else => {
                                 state = .literal_integer;
                                 result.tag = .literal_integer;
-                            }
+                            },
                         }
-                    },
-                    '/' => {
-                        state = .slash;
-                    },
-                    ',' => {
-                        result.tag = .comma;
-                        self.index += 1;
+                    }
+                },
+                '/' => {
+                    state = .slash;
+                },
+                ',' => {
+                    result.tag = .comma;
+                    self.index += 1;
 
-                        break;
-                    },
-                    ':' => {
-                        result.tag = .colon;
-                        self.index += 1;
+                    break;
+                },
+                ':' => {
+                    result.tag = .colon;
+                    self.index += 1;
 
-                        break;
-                    },
-                    ';' => {
-                        result.tag = .semicolon;
-                        self.index += 1;
+                    break;
+                },
+                ';' => {
+                    result.tag = .semicolon;
+                    self.index += 1;
 
-                        break;
-                    },
-                    else => {},
-                }
+                    break;
+                },
+                else => {},
             },
             .identifier => {
                 switch (char) 
@@ -130,9 +117,9 @@ pub fn next(self: *Tokenizer) ?Token
                         {
                             result.tag = .argument_register;
                         }
-                        else if (std.mem.eql(u8, "export", string))
+                        else if (Token.getKeyword(string)) |keyword_tag|
                         {
-                            result.tag = .keyword_export;
+                            result.tag = keyword_tag;
                         }
 
                         break;
@@ -164,7 +151,6 @@ pub fn next(self: *Tokenizer) ?Token
                 switch (char)
                 {
                     'a'...'z', 'A'...'Z', '0'...'9', '\'' => {},
-                    // '\'' => break,
                     else => break,
                 }
             },
@@ -172,7 +158,6 @@ pub fn next(self: *Tokenizer) ?Token
                 switch (char)
                 {
                     'a'...'z', 'A'...'Z', '0'...'9', ',', ' ', '!', '\n', '\t', '\"' => {},
-                    // '\'' => break,
                     else => break,
                 }
             },
@@ -183,7 +168,6 @@ pub fn next(self: *Tokenizer) ?Token
                         state = .single_comment;
                     },
                     '*' => {
-                        std.debug.assert(multi_comment_level == 0);
                         state = .multi_comment;
                     },
                     else => {},
@@ -263,8 +247,33 @@ pub const Token = struct
         opcode,
         context_register,
         argument_register,
+        keyword_import,
         keyword_export,
     };
+
+    pub fn lexeme(tag: Tag) ?[]const u8
+    {
+        return switch (tag)
+        {
+            .end, 
+            .identifier, 
+            .literal_binary, 
+            .literal_hex, 
+            .literal_integer, 
+            .literal_string,
+            .opcode,
+            .context_register,
+            .argument_register,
+            => null,
+            .keyword_import => "import",
+            .keyword_export => "export",
+            .comma => ",",
+            .semicolon => ";",
+            .colon => ":",
+            .left_brace => "{",
+            .right_brace => "}",
+        };
+    }
 
     pub fn getOpcode(string: []const u8) ?Vm.OpCode
     {
@@ -320,5 +329,25 @@ pub const Token = struct
         } 
 
         return false;   
+    }
+
+    pub fn isKeyword(string: []const u8, comptime tag: Tag) bool
+    {
+        if (@tagName(tag).len < @sizeOf(@TypeOf("keyword_"))) return false;
+
+        return std.mem.eql(u8, string, @tagName(tag)[@sizeOf(@TypeOf("keyword_"))..]);
+    }
+
+    pub fn getKeyword(string: []const u8) ?Tag
+    {
+        inline for (comptime std.enums.values(Tag)) |tag|
+        {
+            if (isKeyword(string, tag))
+            {
+                return tag;
+            }
+        }
+
+        return null;
     }
 };

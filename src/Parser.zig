@@ -2,7 +2,7 @@ const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");
 const Token = Tokenizer.Token;
 
-const Error = struct 
+pub const Error = struct 
 {
     tag: Tag,
 
@@ -29,9 +29,23 @@ pub fn parse(self: @This()) void
     _ = self;
 }
 
+//procedure : proc identifier '{' instruction_block '}'
+
+//instruction_block : instruction_block instruction 
+//                  | instruction;
+
+pub fn parseInstructionBlock(self: @This()) void 
+{
+    while (self.parseInstruction())
+    {
+        
+    }   
+}
+
+//instruction : identifier ':' opcode operand_list ';'
+//            | opcode operand_list ';'
 pub fn parseInstruction(self: @This()) !void 
 {
-    //ex: loop: iadd a0, a1, a2;
     const label = self.eatToken(.identifier);
 
     if (label != null)
@@ -41,12 +55,16 @@ pub fn parseInstruction(self: @This()) !void
 
     const opcode = try self.expectToken(.opcode);
 
+    _ = opcode;
+
     if (self.eatToken(.semicolon) != null) return;
 
     while (true)
     {
         try parseIntegerLiteral();
     }
+
+    _ = self.eatToken(.semicolon);
 }
 
 pub fn parseIntegerLiteral(self: @This()) !u64 

@@ -66,6 +66,7 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
     defer label_patches.deinit();
 
     var is_export = false;
+    var is_import = false;
 
     while (tokenizer.next()) |token|
     {
@@ -82,6 +83,9 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
                     },
                     .keyword_export => {
                         is_export = true;
+                    },
+                    .keyword_import => {
+                        is_import = true;
                     },
                     .identifier => {
                         //Should use look ahead
@@ -117,6 +121,15 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
                             try labels.put(source[token.start..token.end], .{ .address = preinit_data.items.len, .tag = .data });
 
                             try preinit_data.appendSlice(source[next.start + 1..next.end - 1]);
+                        }
+                        else 
+                        {
+                            if (is_import)
+                            {
+                                std.log.info("Found import '{s}'", .{ source[token.start..token.end] });
+                        
+                                is_import = false;
+                            }
                         }
 
                         tokenizer.index -= next.end - next.start;

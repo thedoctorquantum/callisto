@@ -78,7 +78,7 @@ fn run() !void
         return try std.io.getStdErr().writer().print("{s}\n", .{ "0.1.0" });
     }
 
-    const out_module = clap_result.args.out_module orelse "out.qst";
+    const out_module = clap_result.args.out_module orelse "out.zt";
 
     for (clap_result.args.source) |source_file| 
     {

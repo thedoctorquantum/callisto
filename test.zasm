@@ -1,10 +1,18 @@
 
+/*
+    references to external procedures should need to be imported
+
+    eg:
+        import puts from std;
+*/
+
+//stored in static data section
 message: "hello, world";
 
 export main:
     move a0, message;
     move a1, 12; //$sizeof(message)
-    extcall 3; //puts(a0[0..a1])
+    extcall 0x3; //puts(a0[0..a1])
 
     read8 c0, message;
 
@@ -25,4 +33,7 @@ export panic:
     move a0, panic_message;
     move a1, 19;
     extcall 3; //puts
+    write8 0x00, 0;
     unreachable;
+
+recurse: jump recurse;
