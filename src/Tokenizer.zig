@@ -171,7 +171,7 @@ pub fn next(self: *Tokenizer) ?Token
             .literal_string => {
                 switch (char)
                 {
-                    'a'...'z', 'A'...'Z', '0'...'9', '\"' => {},
+                    'a'...'z', 'A'...'Z', '0'...'9', ',', ' ', '!', '\"' => {},
                     // '\'' => break,
                     else => break,
                 }

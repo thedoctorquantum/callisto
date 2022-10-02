@@ -39,6 +39,9 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
     var exported_symbol_text = std.ArrayList(u8).init(self.allocator);
     defer exported_symbol_text.deinit();
 
+    var relocations = std.ArrayList(Module.Relocation).init(self.allocator);
+    defer relocations.deinit();
+
     const LabelType = enum 
     {
         instruction,
@@ -113,7 +116,7 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
                             //static address
                             try labels.put(source[token.start..token.end], .{ .address = preinit_data.items.len, .tag = .data });
 
-                            try preinit_data.appendSlice(source[token.start..token.end]);
+                            try preinit_data.appendSlice(source[next.start + 1..next.end - 1]);
                         }
 
                         tokenizer.index -= next.end - next.start;
@@ -189,14 +192,23 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
 
     for (label_patches.items) |patch|
     {
-        instructions.items[patch.instruction_index].operands[patch.operand_index] = .{                            
-            .immediate = (labels.get(patch.label_name) orelse {
-                std.log.info("Label {s} not found", .{ patch.label_name });
+        const label = labels.get(patch.label_name) orelse {
+            std.log.info("Label {s} not found", .{ patch.label_name });
 
-                return error.LabelNotFound;
-            }).address
+            return error.LabelNotFound;
+        };
+
+        instructions.items[patch.instruction_index].operands[patch.operand_index] = .{                            
+            .immediate = label.address
         };        
+
+        if (label.tag == .data)
+        {
+            try relocations.append(.{ .instruction_address = patch.instruction_index, .operand_index = @intCast(u8, patch.operand_index), .address_type = .data });
+        } 
     }    
+
+    std.log.info("relocations: {}", .{ relocations.items.len });
 
     var module = Module {
         .allocator = self.allocator,
@@ -234,6 +246,23 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
     std.mem.copy(u8, try export_section_fba.allocator().alloc(u8, exported_symbol_text.items.len), exported_symbol_text.items);
 
     _ = try module.addSectionData(.exports, export_section_data);
+
+    const relocation_section_data = try self.allocator.alloc(
+        u8, 
+        @sizeOf(Module.RelocationSectionHeader) + 
+        relocations.items.len * @sizeOf(Module.Relocation)
+    );
+    defer self.allocator.free(relocation_section_data);
+
+    var relocation_section_fba = std.heap.FixedBufferAllocator.init(relocation_section_data);
+
+    const relocation_header = try relocation_section_fba.allocator().create(Module.RelocationSectionHeader);
+
+    relocation_header.relocation_count = relocations.items.len;
+
+    _ = try relocation_section_fba.allocator().dupe(Module.Relocation, relocations.items);
+
+    _ = try module.addSectionData(.relocations, relocation_section_data); 
 
     return module;
 }

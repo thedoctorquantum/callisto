@@ -38,6 +38,7 @@ pub const Section = extern struct
         imports,
         exports,
         references,
+        relocations,
         debug,
         _
     };
@@ -89,6 +90,24 @@ pub const Reference = extern struct
 {
     location: u64,
     symbol: u32,
+};
+
+pub const RelocationSectionHeader = extern struct 
+{
+    relocation_count: usize,
+};
+
+pub const Relocation = extern struct
+{
+    instruction_address: u64,
+    operand_index: u8,
+    address_type: Tag,
+
+    pub const Tag = enum(u8)
+    {
+        data,
+        _
+    };  
 };
 
 pub fn addSection(self: *@This(), id: Section.Id, size: usize) !usize

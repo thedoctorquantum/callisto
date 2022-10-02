@@ -205,11 +205,11 @@ fn run() !void
 
         const instructions = @ptrCast([*]Vm.Instruction, @alignCast(@alignOf(Vm.Instruction), instructions_bytes.ptr))[0 .. instructions_bytes.len / @sizeOf(Vm.Instruction)];
 
+        @setRuntimeSafety(false);
+
         const main_address = if (module.getSectionData(.exports, 0)) |exports_bytes| block: 
         {
             var offset: usize = 0;
-
-            @setRuntimeSafety(false);
 
             const header = @ptrCast(*const Module.ExportSectionHeader, @alignCast(@alignOf(Module.ExportSectionHeader), exports_bytes.ptr));
 
@@ -236,6 +236,36 @@ fn run() !void
 
             break :block null;
         } else null;
+
+        if (module.getSectionData(.relocations, 0)) |relocation_data|
+        {
+            var offset: usize = 0;
+
+            const header = @ptrCast(*const Module.RelocationSectionHeader, @alignCast(@alignOf(Module.RelocationSectionHeader), relocation_data.ptr));
+
+            offset += @sizeOf(Module.RelocationSectionHeader);
+
+            var relocation_index: usize = 0;
+
+            while (relocation_index < header.relocation_count) : (relocation_index += 1)
+            {
+                const relocation = @ptrCast(*const Module.Relocation, @alignCast(@alignOf(Module.Relocation), relocation_data.ptr + offset));
+
+                std.log.info("relocation: {}", .{ relocation });
+
+                switch (relocation.address_type)
+                {
+                    .data => {
+                        instructions[relocation.instruction_address].operands[relocation.operand_index].immediate += @ptrToInt(data.ptr);
+                    },
+                    else => unreachable
+                }
+
+                offset += @sizeOf(Module.Relocation);
+            }
+        }
+
+        std.log.info("sussss", .{});
 
         var stack: [1024 * 8]u64 = undefined;
         var call_stack: [64]Vm.CallFrame = undefined;
