@@ -1,14 +1,28 @@
 
-
 message: "hello, world";
 
 export main:
     move a0, message;
-    move a1, 12;
+    move a1, 12; //$sizeof(message)
     extcall 3; //puts(a0[0..a1])
+
+    read8 c0, message;
+
+    call panic;
 
     return;
 
 export _start:
     call main;
     return;
+
+panic_message: "
+    Program panic!
+";
+
+//panic handler
+export panic: 
+    move a0, panic_message;
+    move a1, 19;
+    extcall 3; //puts
+    unreachable;

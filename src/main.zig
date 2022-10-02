@@ -33,7 +33,7 @@ fn envPow(a: u64, b: u64) u64
 
 fn puts(string: []const u8) void 
 {
-    std.io.getStdOut().writer().print("puts: {s}\n", .{ string }) catch unreachable;
+    std.io.getStdOut().writer().print("{s}\n", .{ string }) catch unreachable;
 }
 
 fn alloc(size: u64) []const u8
