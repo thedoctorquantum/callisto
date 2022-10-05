@@ -78,6 +78,42 @@ pub fn next(self: *Tokenizer) ?Token
                 '/' => {
                     state = .slash;
                 },
+                '{' => {
+                    result.tag = .left_brace;
+                    self.index += 1;
+
+                    break;
+                },
+                '}' => {
+                    result.tag = .right_brace;
+                    self.index += 1;
+
+                    break;
+                },
+                '(' => {
+                    result.tag = .left_paren;
+                    self.index += 1;
+
+                    break;
+                },
+                ')' => {
+                    result.tag = .right_paren;
+                    self.index += 1;
+
+                    break;
+                },
+                '$' => {
+                    result.tag = .dollar;
+                    self.index += 1;
+
+                    break;
+                }, 
+                '=' => {
+                    result.tag = .equals;
+                    self.index += 1;
+
+                    break;
+                },
                 ',' => {
                     result.tag = .comma;
                     self.index += 1;
@@ -239,6 +275,10 @@ pub const Token = struct
         semicolon,
         left_brace,
         right_brace,
+        left_paren,
+        right_paren,
+        equals,
+        dollar,
         literal_integer,
         literal_hex,
         literal_binary,
@@ -249,6 +289,8 @@ pub const Token = struct
         argument_register,
         keyword_import,
         keyword_export,
+        keyword_proc,
+        keyword_var,
     };
 
     pub fn lexeme(tag: Tag) ?[]const u8
@@ -267,9 +309,12 @@ pub const Token = struct
             => null,
             .keyword_import => "import",
             .keyword_export => "export",
+            .keyword_proc => "proc",
+            .keyword_var => "var",
             .comma => ",",
             .semicolon => ";",
             .colon => ":",
+            .equals => "=",
             .left_brace => "{",
             .right_brace => "}",
         };

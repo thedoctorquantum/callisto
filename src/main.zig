@@ -4,6 +4,11 @@ const clap = @import("clap");
 pub const Vm = @import("Vm.zig");
 pub const Assembler = @import("Assembler.zig");
 pub const Module = @import("Module.zig");
+pub const Parser = @import("Parser.zig");
+
+comptime {
+    _ = Parser;
+}
 
 fn nativeTest(vm: *Vm) void 
 {    
@@ -48,9 +53,86 @@ pub usingnamespace if (@import("root") == @This()) struct {
 fn run() !void 
 {       
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(!gpa.deinit());
+    // defer std.debug.assert(!gpa.deinit());
     
     const allocator = gpa.allocator();
+
+    //decode test
+    if (false)
+    {
+        var instructions_buffer = try gpa.allocator().create([1024]u16);
+        defer gpa.allocator().destroy(instructions_buffer);
+
+        var code_point: usize = 0;
+
+        const instruction_headers = @ptrCast([*]Vm.InstructionHeader, instructions_buffer)[0..instructions_buffer.len];
+        const instruction_registers = @ptrCast([*]Vm.OperandPack, instructions_buffer)[0..instructions_buffer.len];
+
+        //iadd c0, 32, c1;
+        instruction_headers[code_point] = Vm.InstructionHeader {
+            .opcode = .@"iadd",
+            .operand_layout = .register_immediate_register,
+            .operand_size = .@"16",
+            .immediate_size = .@"16",
+        };
+        code_point += 1;
+
+        instruction_registers[code_point] = Vm.OperandPack {
+            .read_operand = .c0,
+            .write_operand = .c1,
+
+            .read_operand1 = undefined,
+            .write_operand1 = undefined,
+        };
+        code_point += 1;
+
+        instructions_buffer[code_point] = 32;
+        code_point += 1;
+
+        instruction_headers[code_point] = Vm.InstructionHeader {
+            .opcode = .@"unreachable",
+            .operand_layout = .none,
+            .operand_size = .@"8",
+            .immediate_size = .@"8",
+        };
+        code_point += 1;
+
+        instruction_headers[code_point] = Vm.InstructionHeader {
+            .opcode = .@"break",
+            .operand_layout = .none,
+            .operand_size = .@"8",
+            .immediate_size = .@"8",
+        };
+        code_point += 1;
+
+        instruction_headers[code_point] = Vm.InstructionHeader {
+            .opcode = .@"return",
+            .operand_layout = .none,
+            .operand_size = .@"8",
+            .immediate_size = .@"8",
+        };
+        code_point += 1;
+
+        std.log.info("{any}", .{ instructions_buffer[0..code_point] });
+
+        Vm.decode(instructions_buffer[0..code_point]);
+    }
+
+    if (false)
+    {
+        var parser: Parser = .{ 
+            .allocator = allocator,  
+            .source = @embedFile("basic_syntax.zasm"),
+            .tokens = .{},
+            .token_tags = &.{},
+            .token_starts = &.{},
+            .token_ends = &.{},
+            .token_index = 0,
+            .errors = .{},
+        };    
+
+        try parser.parse();
+    }
 
     const params = comptime clap.parseParamsComptime(
         \\-h, --help Display this help and exit.
@@ -117,21 +199,17 @@ fn run() !void
         defer allocator.free(module_bytes);
 
         var module = try Module.decode(allocator, module_bytes);
-        
+        defer module.sections.deinit(allocator);
+        defer module.sections_content.deinit(allocator);
+
         try stdout.print("Section count: {}\n", .{module.sections.items.len});
 
         for (module.sections.items) |section, i| 
         {
-            try stdout.print("Section {}: id = {s}, size = {}\n", .{ i, @tagName(section.id), section.content_size });
+            try stdout.print("Section {}: id = {s}, size = {}, alignment = {}\n", .{ i, @tagName(section.id), section.content_size, section.content_alignment });
         }
 
         try stdout.print("\n", .{});
-
-        const instructions_bytes = module.getSectionData(.instructions, 0) orelse unreachable;
-        const instructions = @ptrCast([*]Vm.Instruction, @alignCast(@alignOf(Vm.Instruction), instructions_bytes.ptr))[0 .. instructions_bytes.len / @sizeOf(Vm.Instruction)];
-
-        defer module.sections.deinit(allocator);
-        defer module.sections_content.deinit(allocator);
 
         if (module.getSectionData(.exports, 0)) |exports_bytes| 
         {
@@ -162,22 +240,223 @@ fn run() !void
         try stdout.print("Instructions: \n", .{});
         try std.fmt.format(stdout, "    {s: <8}  {s: >2} {s}\n", .{ "address", "op", "name" });
 
-        for (instructions) |instruction, i| 
+        const instruction_bytes = module.getSectionData(.instructions, 0) orelse unreachable;
+        const instruction_code_points = @ptrCast([*]const u16, @alignCast(@alignOf(u16), instruction_bytes.ptr))[0 .. instruction_bytes.len / @sizeOf(u16)];
+
         {
-            try std.fmt.format(stdout, "    {x:0>8}: {x:0>2} {s: <15} ", .{ i, @enumToInt(instruction.opcode), @tagName(instruction.opcode) });
+            @setRuntimeSafety(false);
 
-            for (instruction.operands) |operand, j| {
-                switch (operand) {
-                    .register => try std.fmt.format(stdout, "{s}", .{ @tagName(@intToEnum(Vm.Register, operand.register)) }),
-                    .immediate => try std.fmt.format(stdout, "${x}", .{ operand.immediate }),
+            var i: usize = 0;
+
+            while (i < instruction_code_points.len)
+            {
+                const code_point_offset = i; _ = code_point_offset;
+                const code_point = instruction_code_points[i];
+
+                const header = @bitCast(Vm.InstructionHeader, code_point);
+
+                try std.fmt.format(stdout, "    {x:0>8}: {x:0>2} {s: <15} ", .{ i * @sizeOf(u16), @enumToInt(header.opcode), @tagName(header.opcode) });
+
+                i += 1;
+
+                switch (header.operand_layout)
+                {
+                    .none => {},
+                    .register => {
+                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                        i += 1;
+
+                        try std.fmt.format(stdout, "{s}", .{ @tagName(registers.read_operand) });
+                    },
+                    .register_register => {
+                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                        i += 1;
+
+                        try std.fmt.format(stdout, "{s}, {s}", .{ @tagName(registers.read_operand), @tagName(registers.write_operand) });
+                    },
+                    .register_register_register => {
+                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                        i += 1;
+
+                        try std.fmt.format(stdout, "{s}, {s}, {s}", .{ @tagName(registers.read_operand), @tagName(registers.read_operand1), @tagName(registers.write_operand) });
+                    },
+                    .register_immediate => {
+                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                        i += 1;
+
+                        try std.fmt.format(stdout, "{s}, ", .{ @tagName(registers.write_operand) });
+
+                        switch (header.immediate_size)
+                        {
+                            .@"8" => { 
+                                const immediate = instruction_code_points[i];
+                                i += 1;
+
+                                try std.fmt.format(stdout, "{x}", .{ immediate });
+                            },
+                            .@"16" => { 
+                                const immediate = instruction_code_points[i];
+                                i += 1;
+
+                                try std.fmt.format(stdout, "{x}", .{ immediate });
+                            },
+                            .@"32" => {
+                                const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                                i += 2;
+
+                                try std.fmt.format(stdout, "{x}", .{ immediate });
+                            },
+                            .@"64" => {
+                                const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+                                i += 4;
+
+                                try std.fmt.format(stdout, "{x}", .{ immediate });
+                            },
+                        }
+                    },
+                    .register_immediate_register => {
+                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                        i += 1;
+
+                        try std.fmt.format(stdout, "{s}, ", .{ @tagName(registers.read_operand) });
+
+                        switch (header.immediate_size)
+                        {
+                            .@"8" => { 
+                                const immediate = instruction_code_points[i];
+                                i += 1;
+
+                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                            },
+                            .@"16" => { 
+                                const immediate = instruction_code_points[i];
+                                i += 1;
+
+                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                            },
+                            .@"32" => {
+                                const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                                i += 2;
+
+                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                            },
+                            .@"64" => {
+                                const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+
+                                i += 4;
+
+                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                            },
+                        }
+
+                        try std.fmt.format(stdout, "{s}", .{ @tagName(registers.read_operand) });
+                    },
+                    .immediate => {
+                        switch (header.immediate_size)
+                        {
+                            .@"8" => { 
+                                const immediate = instruction_code_points[i];
+                                i += 1;
+
+                                try std.fmt.format(stdout, "{x}", .{ immediate });
+                            },
+                            .@"16" => { 
+                                const immediate = instruction_code_points[i];
+                                i += 1;
+
+                                try std.fmt.format(stdout, "{x}", .{ immediate });
+                            },
+                            .@"32" => {
+                                const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                                i += 2;
+
+                                try std.fmt.format(stdout, "{x}", .{ immediate });
+                            },
+                            .@"64" => {
+                                const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+
+                                i += 4;
+
+                                try std.fmt.format(stdout, "{x}", .{ immediate });
+                            },
+                        }
+                    },
+                    .immediate_immediate => {
+                        var j: usize = 0;
+
+                        while (j < 2) : (j += 1)
+                        {
+                            switch (header.immediate_size)
+                            {
+                                .@"8" => { 
+                                    const immediate = instruction_code_points[i];
+                                    i += 1;
+
+                                    try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                                },
+                                .@"16" => { 
+                                    const immediate = instruction_code_points[i];
+                                    i += 1;
+
+                                    try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                                },
+                                .@"32" => {
+                                    const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                                    i += 2;
+
+                                    try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                                },
+                                .@"64" => {
+                                    const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+
+                                    i += 4;
+
+                                    try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                                },
+                            }
+                        }
+                    },
+                    .immediate_register => {
+                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                        i += 1;
+
+                        switch (header.immediate_size)
+                        {
+                            .@"8" => { 
+                                const immediate = instruction_code_points[i];
+                                i += 1;
+
+                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                            },
+                            .@"16" => { 
+                                const immediate = instruction_code_points[i];
+                                i += 1;
+
+                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                            },
+                            .@"32" => {
+                                const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                                i += 2;
+
+                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                            },
+                            .@"64" => {
+                                const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+
+                                i += 4;
+
+                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                            },
+                        }
+
+                        try std.fmt.format(stdout, "{s}", .{ @tagName(registers.write_operand) });
+                    },
+                    .immediate_register_register => unreachable,
+                    _ => unreachable,
                 }
 
-                if (j != instruction.operands.len - 1) {
-                    try std.fmt.format(stdout, ", ", .{});
-                }
+                try std.fmt.format(stdout, "\n", .{});
             }
-            
-            try std.fmt.format(stdout, "\n", .{});
         }
 
         return;
@@ -203,9 +482,45 @@ fn run() !void
 
         const data = module.getSectionData(.data, 0) orelse empty_data[0..0];
 
-        const instructions = @ptrCast([*]Vm.Instruction, @alignCast(@alignOf(Vm.Instruction), instructions_bytes.ptr))[0 .. instructions_bytes.len / @sizeOf(Vm.Instruction)];
+        const instructions = @ptrCast([*]u16, @alignCast(@alignOf(u16), instructions_bytes.ptr))[0 .. instructions_bytes.len / @sizeOf(u16)];
 
         @setRuntimeSafety(false);
+
+        const available_symbols = &[_][]const u8 
+        {
+            "nativeTest",
+            "envMulAdd",
+            "envPow",
+            "puts",
+            "alloc",
+        };    
+
+        _ = available_symbols;  
+
+        //link
+        {
+            if (module.getSectionData(.imports, 0)) |import_section_data|
+            {
+                var offset: usize = 0;
+
+                const header = @ptrCast(*const Module.ImportSectionHeader, @alignCast(@alignOf(Module.ImportSectionHeader), import_section_data.ptr));
+
+                offset += @sizeOf(Module.ImportSectionHeader);
+
+                const symbols = @ptrCast([*]const Module.SymbolImport, @alignCast(@alignOf(Module.SymbolImport), import_section_data.ptr + offset))[0..header.symbol_count];
+
+                std.log.info("symbols.len: {}", .{ symbols.len });
+
+                offset += @sizeOf(Module.SymbolImport) * symbols.len;
+
+                for (symbols) |symbol|
+                {
+                    const symbol_name = (import_section_data.ptr + offset + symbol.offset)[0..symbol.size];
+
+                    std.log.info("Import Symbol: {s}", .{ symbol_name });
+                }
+            }
+        }
 
         const main_address = if (module.getSectionData(.exports, 0)) |exports_bytes| block: 
         {
@@ -237,8 +552,12 @@ fn run() !void
             break :block null;
         } else null;
 
-        if (module.getSectionData(.relocations, 0)) |relocation_data|
+        if (false) if (module.getSectionData(.relocations, 0)) |relocation_data|
         {
+            const code_points = @ptrCast([*]u16, @alignCast(@alignOf(u16), instructions_bytes.ptr))[0..instructions_bytes.len / @sizeOf(u16)];
+
+            _ = code_points;
+
             var offset: usize = 0;
 
             const header = @ptrCast(*const Module.RelocationSectionHeader, @alignCast(@alignOf(Module.RelocationSectionHeader), relocation_data.ptr));
@@ -256,48 +575,54 @@ fn run() !void
                 switch (relocation.address_type)
                 {
                     .data => {
-                        instructions[relocation.instruction_address].operands[relocation.operand_index].immediate += @ptrToInt(data.ptr);
+                        // instructions[relocation.instruction_address].operands[relocation.operand_index].immediate += @ptrToInt(data.ptr);
+
+                        @setRuntimeSafety(false);
+
+                        @ptrCast(*u64, @alignCast(@alignOf(u64), instructions_bytes.ptr + relocation.address)).* = @ptrToInt(data.ptr);
                     },
                     else => unreachable
                 }
 
                 offset += @sizeOf(Module.Relocation);
             }
-        }
-
-        std.log.info("sussss", .{});
-
-        var stack: [1024 * 8]u64 = undefined;
-        var call_stack: [64]Vm.CallFrame = undefined;
-
-        var vm = Vm{
-            .stack = &stack,
-            .call_stack = &call_stack,
-            .natives = &[_]*const fn (*Vm) void {
-                &nativeTest,
-                Vm.extFn(envMulAdd),
-                Vm.extFn(envPow),
-                Vm.extFn(puts),
-                Vm.extFn(alloc),
-            },
         };
 
-        vm.init();
-        defer vm.deinit();
+        _ = main_address;
 
-        const executable = Vm.Executable {
-            .instructions = instructions,
-            .data = data,
-        };
+        Vm.decode(instructions);
 
-        if (main_address) |address| 
-        {
-            vm.execute(executable, address) catch |err| switch (err) 
-            {
-                error.BreakInstruction => std.log.info("Breakpoint hit", .{}),
-                else => return err,
-            };
-        }
+        // var stack: [1024 * 8]u64 = undefined;
+        // var call_stack: [64]Vm.CallFrame = undefined;
+
+        // var vm = Vm{
+        //     .stack = &stack,
+        //     .call_stack = &call_stack,
+        //     .natives = &[_]*const fn (*Vm) void {
+        //         &nativeTest,
+        //         Vm.extFn(envMulAdd),
+        //         Vm.extFn(envPow),
+        //         Vm.extFn(puts),
+        //         Vm.extFn(alloc),
+        //     },
+        // };
+
+        // vm.init();
+        // defer vm.deinit();
+
+        // const executable = Vm.Executable {
+        //     .instructions = instructions,
+        //     .data = data,
+        // };
+
+        // if (main_address) |address| 
+        // {
+        //     vm.execute(executable, address) catch |err| switch (err) 
+        //     {
+        //         error.BreakInstruction => std.log.info("Breakpoint hit", .{}),
+        //         else => return err,
+        //     };
+        // }
 
         return;
     }

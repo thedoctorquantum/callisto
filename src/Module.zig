@@ -28,7 +28,8 @@ pub const Header = extern struct
 pub const Section = extern struct 
 {
     id: Id,
-    content_size: u64,
+    content_alignment: u8,
+    content_size: u32,
 
     pub const Id = enum(u8)
     {
@@ -83,24 +84,23 @@ pub const SymbolExport = extern struct
 
 pub const ReferenceSectionHeader = extern struct
 {
-    reference_count: usize,
+    reference_count: u64,
 };
 
 pub const Reference = extern struct 
 {
-    location: u64,
+    address: u32,
     symbol: u32,
 };
 
 pub const RelocationSectionHeader = extern struct 
 {
-    relocation_count: usize,
+    relocation_count: u64,
 };
 
 pub const Relocation = extern struct
 {
-    instruction_address: u64,
-    operand_index: u8,
+    address: u32,
     address_type: Tag,
 
     pub const Tag = enum(u8)
@@ -110,24 +110,30 @@ pub const Relocation = extern struct
     };  
 };
 
-pub fn addSection(self: *@This(), id: Section.Id, size: usize) !usize
+pub fn addSection(self: *@This(), id: Section.Id, size: usize, alignment: u4) ![]u8
 {
-    try self.sections.append(self.allocator, .{ .id = id, .content_size = size });
+    try self.sections.append(self.allocator, .{ .id = id, .content_size = @intCast(u32, size), .content_alignment = alignment });
 
     const offset = self.sections_content.items.len;
 
-    try self.sections_content.appendNTimes(self.allocator, 0, size);
+    const aligned_offset = std.mem.alignForward(offset, alignment);
 
-    return offset;
+    const padding = aligned_offset - offset;
+
+    try self.sections_content.appendNTimes(self.allocator, 0, size + padding);
+
+    return self.sections_content.items.ptr[aligned_offset..aligned_offset + size];
 }
 
-pub fn addSectionData(self: *@This(), id: Section.Id, data: []const u8) !usize
+pub fn addSectionData(self: *@This(), id: Section.Id, comptime T: type, data: []T) ![]T
 {
-    const offset = try self.addSection(id, data.len);
+    const section_data = try self.addSection(id, data.len * @sizeOf(T), @alignOf(T));
 
-    @memcpy(self.sections_content.items.ptr + offset, data.ptr, data.len);
+    const slice = @ptrCast([*]T, @alignCast(@alignOf(T), section_data.ptr))[0..data.len];
 
-    return offset;
+    std.mem.copy(T, slice, data);
+
+    return slice;
 }
 
 pub fn getSectionData(self: @This(), id: Section.Id, index: usize) ?[]u8
@@ -143,7 +149,11 @@ pub fn getSectionData(self: @This(), id: Section.Id, index: usize) ?[]u8
         {
             if (section_type_count == index)
             {
-                return self.sections_content.items[offset..offset + section.content_size];
+                const alignment = section.content_alignment;
+
+                const aligned_offset = std.mem.alignForward(offset, alignment);
+
+                return self.sections_content.items[aligned_offset..aligned_offset + section.content_size];
             }
 
             section_type_count += 1;

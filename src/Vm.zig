@@ -9,6 +9,7 @@ pub const OpCode = enum(u8)
     @"unreachable", //Unrecoverable Trap
     @"break", //Recoverable Trap
     move,
+    clear,
     read8,
     read16,
     read32,
@@ -71,60 +72,220 @@ pub const Register = enum(u4)
     a7,
 };
 
-pub const ImmedateSize = enum(u2) 
+pub const OperandAddressingSize = enum(u2) 
 {
     @"8",
     @"16",
     @"32",
     @"64",
 
-    pub fn size(self: ImmedateSize) usize 
+    pub inline fn size(self: OperandAddressingSize) usize 
     {
-        return 1 << @enumToInt(self);
+        return @as(u8, 1) << @enumToInt(self);
     }
 };
 
-//iadd reg_imm_reg im32(69)
-pub const Instruction32 = packed struct(u32)
+pub const OperandLayout = enum(u4)
+{
+    none, //no operands
+    register, //r0;
+    register_register, //r0, r1;
+    register_register_register, //r0, r1, r2;
+    register_immediate, //r0, imm;
+    register_immediate_register, //r0, imm, r1;
+    immediate, //imm;
+    immediate_immediate, //imm, imm
+    immediate_register, //imm, r0;
+    immediate_register_register, //imm, r0, r1;
+    _
+};
+
+pub const InstructionHeader = packed struct(u16)
 {
     opcode: OpCode,
-    read_operand: Operand,
-    read_operand1: Register,
-    write_operand: Register,
-    read_operand1_enabled: bool,
-    write_enabled: bool,
-
-    pub const Operand = packed struct(u8)
-    {
-        tag: Tag,
-        data: packed union
-        {
-            size: Size,
-            register: Register,
-        },
-
-        pub const Tag = enum(u4)
-        {
-            disabled,
-            immediate,
-            register,
-            _
-        };
-
-        pub const Size = enum(u2)
-        {
-            @"8",
-            @"16",
-            @"32",
-            @"64",
-
-            pub fn size(self: ImmedateSize) usize 
-            {
-                return 1 << @enumToInt(self);
-            }
-        };
-    };
+    operand_layout: OperandLayout,
+    operand_size: OperandAddressingSize,
+    immediate_size: OperandAddressingSize,
 };
+
+//There are 4 operand registers available to instructions
+//ro0: readonly_0; (64 bits)
+//ro1: readonly_1; (64 bits)
+//wo0: writeonly_0; (64 bits)
+//wo1: writeonly_1; (64 bits)
+pub const OperandPack = packed struct(u16)
+{
+    read_operand: Register = .c0, //readonly register 1
+    write_operand: Register = .c0, //writeonly register 1
+    read_operand1: Register = .c0, //readonly register 2
+    write_operand1: Register = .c0, //writeonly register 2
+
+    //optimization for storing 1 byte immediates
+    // operand1: packed union 
+    // { 
+    //     immediate: u8, 
+    //     registers: packed struct(u8) 
+    //     { 
+    //         read: Register = .c0, 
+    //         write: Register = .c0,
+    //     } 
+    // } = .{ .immediate = 0, },
+};
+
+pub fn decode(instructions: []const u16) void 
+{
+    var registers = std.mem.zeroes([16]u64);
+
+    @setRuntimeSafety(false);
+
+    var instruction_pointer = @ptrCast([*]const u8, instructions.ptr);
+
+    const instructions_begin = instruction_pointer;
+
+    //- Each Instruction loop can fetch 1 or more code points,
+    //- Decode Loop:
+    //  - Fetch code point (2 bytes (16 bits)),
+    //  - Decode code point,
+    //- Dispatch/Execute,
+
+    while (true)
+    {
+        const instruction_header = @ptrCast(*const InstructionHeader, instruction_pointer).*;
+
+        instruction_pointer += @sizeOf(InstructionHeader);
+
+        var read_operand0: u64 = undefined;
+        var read_operand1: u64 = undefined;
+
+        var write_operand0: *u64 = undefined;
+        var write_operand1: *u64 = undefined;
+
+        _ = write_operand1;
+
+        std.log.info("code_point: {}", .{ (@ptrToInt(instruction_pointer) - @ptrToInt(instructions_begin)) / 2 });
+
+        switch (instruction_header.operand_layout)
+        {
+            .none => {},
+            .immediate => {
+                switch (instruction_header.immediate_size)
+                {
+                    .@"8" => {
+                        read_operand0 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"16" => {
+                        read_operand0 = @ptrCast(*const u16, instruction_pointer).*;
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"32" => {
+                        read_operand0 = @ptrCast(*const u32, @alignCast(@alignOf(u32), instruction_pointer)).*; //unaligned read
+                        instruction_pointer += @sizeOf(u32);
+                    },
+                    .@"64" => { 
+                        read_operand0 = @ptrCast(*const u64, @alignCast(@alignOf(u64), instruction_pointer)).*; //unaligned read
+                        instruction_pointer += @sizeOf(u64);
+                    },
+                }
+            },
+            .immediate_register => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                switch (instruction_header.immediate_size)
+                {
+                    .@"8" => {
+                        read_operand0 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"16" => {
+                        read_operand0 = @ptrCast(*const u16, instruction_pointer).*;
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"32" => {
+                        read_operand0 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u32);
+                    },
+                    .@"64" => { 
+                        read_operand0 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u64);
+                    },
+                }
+
+                write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
+
+                std.log.info("Operands: {}, {s}", .{ read_operand0, @tagName(register_operands.write_operand) });
+            },
+            .register => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                read_operand0 = registers[@enumToInt(register_operands.read_operand)];
+            },
+            .register_register => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                read_operand0 = registers[@enumToInt(register_operands.read_operand)];
+                write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
+            },
+            .register_register_register => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                read_operand0 = registers[@enumToInt(register_operands.read_operand)];
+                read_operand1 = registers[@enumToInt(register_operands.read_operand1)];
+                write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
+            },
+            .register_immediate_register => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                switch (instruction_header.immediate_size)
+                {
+                    .@"8" => {
+                        read_operand1 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"16" => {
+                        read_operand1 = @ptrCast(*const u16, instruction_pointer).*;
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"32" => {
+                        read_operand1 = @ptrCast(*const u32, @alignCast(@alignOf(u32), instruction_pointer)).*; //unaligned read
+                        instruction_pointer += @sizeOf(u32);
+                    },
+                    .@"64" => { 
+                        read_operand1 = @ptrCast(*const u64, @alignCast(@alignOf(u64), instruction_pointer)).*; //unaligned read
+                        instruction_pointer += @sizeOf(u64);
+                    },
+                }
+
+                read_operand0 = registers[@enumToInt(register_operands.read_operand)];
+                write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
+
+                std.log.info("Operands: {s}, {}, {s}", .{ @tagName(register_operands.read_operand), read_operand1, @tagName(register_operands.write_operand) });
+            },
+            else => unreachable,
+        }
+
+        std.log.info("{s}", .{ @tagName(instruction_header.opcode) });
+
+        //Dispatch/Execution
+        switch (instruction_header.opcode)
+        {
+            .iadd => {
+                write_operand0.* = read_operand0 +% read_operand1;
+            },
+            .@"return" => return,
+            else => {},
+        }
+    }
+} 
+
+comptime {
+    _ = decode;
+}
 
 pub const Instruction = struct
 {
@@ -316,9 +477,13 @@ pub fn execute(self: *Vm, executable: Executable, instruction_pointer: usize) Ex
     self.program_pointer = instruction_pointer;
 
     var old_sigsegv_action: std.os.Sigaction = undefined;
+    var old_sigbus_action: std.os.Sigaction = undefined;
 
     std.os.sigaction(std.os.SIG.SEGV, &.{ .handler = .{ .handler = &segfaultHandler }, .flags = undefined, .mask = undefined }, &old_sigsegv_action) catch unreachable;
     defer std.os.sigaction(std.os.SIG.SEGV, &old_sigsegv_action, null) catch unreachable;
+
+    std.os.sigaction(std.os.SIG.BUS, &.{ .handler = .{ .handler = &segfaultHandler }, .flags = undefined, .mask = undefined }, &old_sigbus_action) catch unreachable;
+    defer std.os.sigaction(std.os.SIG.BUS, &old_sigbus_action, null) catch unreachable;
 
     if (setjmp(&segfault_jump_buf) != 0)
     {
@@ -353,6 +518,10 @@ pub fn execute(self: *Vm, executable: Executable, instruction_pointer: usize) Ex
             .move => 
             {
                 self.registers[instruction.operands[0].register] = self.operandValue(instruction.operands[1]);
+            },
+            .clear => 
+            {
+                self.registers[instruction.operands[0].register] = 0;
             },
             .read8 => 
             {

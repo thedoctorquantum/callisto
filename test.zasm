@@ -6,17 +6,44 @@
         import puts from std;
 */
 
+import puts;
+import alloc;
+
 //stored in static data section
 message: "hello, world";
 
 export main:
-    move a0, message;
-    move a1, 12; //$sizeof(message)
-    extcall 0x3; //puts(a0[0..a1])
+    //loop:
 
-    read8 c0, message;
+    loop:
+        jump loop;
+
+    return;
+
+    //simple test
+    move 5, c0;
+    move 10, c1;
+    iadd c0, c1, c2;
+
+    nullop;
+    return;
+
+    move message, a0;
+    move 12, a1; //$sizeof(message)
+    extcall puts; //puts(a0[0..a1])
+
+    read8 message, c0;
+    write8 'A', message;
 
     call panic;
+    break;
+
+    move message, a0;
+    move a3, 4000000;
+
+    iadd a0, c0, c1;
+    isub c1, 0x3, c1;
+    move 0, c0;
 
     return;
 
@@ -24,16 +51,17 @@ export _start:
     call main;
     return;
 
-panic_message: "
-    Program panic!
-";
+panic_message: "Program panic!"; //len = 14
 
 //panic handler
 export panic: 
-    move a0, panic_message;
-    move a1, 19;
+    move panic_message, a0;
+    move 14, a1;
     extcall 3; //puts
-    write8 0x00, 0;
+
+    //current encoding doesn't allow two immediates, but will do soon
+    move 0, c0;
+    write8 c0, 0x00;
     unreachable;
 
 recurse: jump recurse;

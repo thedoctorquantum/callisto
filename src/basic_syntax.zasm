@@ -1,0 +1,44 @@
+
+var message = "hello, world!";
+var other_message = "bye, world!";
+
+//entrypoint procedure
+export proc main {
+entry:
+    move a0, message;
+    move a1, $sizeof(message);
+    call print;
+
+    clear c0;
+
+    bnot c0, c0;
+    jumpif c0, if_else;
+
+    if_then: {
+        jump if_end;
+    }
+
+    if_else: {
+        jump if_end;
+    }
+
+    if_end: {
+
+    }
+
+    loop_begin: {
+        neql c0, 100, c1;
+        jumpif c1, loop_begin;
+    }
+
+    loop_end: {}
+
+end:
+    return 0;
+}
+
+/* print function */
+proc print {
+    extcall 0;
+    return;
+}
