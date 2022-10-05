@@ -14,9 +14,39 @@ message: "hello, world";
 
 export main:
     nullop;
+
+    move 10, a0;
+    extcall 1; //malloc
+
+    move a7, c0;
+
+    write8 'H', c0; 
+    iadd c0, 1, c0;
+    write8 'e', c0;
+    iadd c0, 1, c0;
+    write8 'l', c0;
+    iadd c0, 1, c0;
+    write8 'l', c0;
+    iadd c0, 1, c0;
+    write8 'o', c0;
+    iadd c0, 1, c0;
+    write8 '!', c0;
+    iadd c0, 1, c0;
+
+    isub c0, a7, c1; //len
+
+    move a7, a0;
+    move c1, a1;
+    extcall 2; //print
+
+    return;
+
     //loop:
 
     //while_true: jump while_true;
+
+    jump loop;
+    move 0x300, a7;
 
     loop:
         iadd c0, 1, c0;
@@ -24,15 +54,23 @@ export main:
         neql c0, 100, c1;
         jumpif c1, loop;
 
-    return;
+    move c0, c6;
+
+    //return;
 
     //simple test
     move 5, c0;
     move 10, c1;
     iadd c0, c1, c2;
 
-    nullop;
+    move 3, a0;
+    move 2, a1;
+    move c6, a2;
+    extcall 0;
+
     return;
+
+    nullop;
 
     move message, a0;
     move 12, a1; //$sizeof(message)
@@ -66,8 +104,7 @@ export panic:
     extcall 3; //puts
 
     //current encoding doesn't allow two immediates, but will do soon
-    move 0, c0;
-    write8 c0, 0x00;
+    write8 0, 0x00;
     unreachable;
 
 recurse: jump recurse;

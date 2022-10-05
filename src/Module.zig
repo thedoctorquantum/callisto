@@ -127,7 +127,12 @@ pub fn addSection(self: *@This(), id: Section.Id, size: usize, alignment: u4) ![
 
 pub fn addSectionData(self: *@This(), id: Section.Id, comptime T: type, data: []T) ![]T
 {
-    const section_data = try self.addSection(id, data.len * @sizeOf(T), @alignOf(T));
+    return self.addSectionDataAligned(id, T, data, 1);
+}
+
+pub fn addSectionDataAligned(self: *@This(), id: Section.Id, comptime T: type, data: []T, alignment: usize) ![]T
+{
+    const section_data = try self.addSection(id, data.len * @sizeOf(T), @maximum(@intCast(u4, alignment), @alignOf(T)));
 
     const slice = @ptrCast([*]T, @alignCast(@alignOf(T), section_data.ptr))[0..data.len];
 

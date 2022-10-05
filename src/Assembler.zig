@@ -37,31 +37,31 @@ pub const IRInstruction = struct
 
                     if (immediate == null)
                     {
-                        immediate_sizes[i] += @sizeOf(u64);
+                        immediate_sizes[i] = @sizeOf(u64);
                     }
                     else 
                     {
                         if (immediate.? <= std.math.maxInt(u8))
                         {
-                            immediate_sizes[i] += @sizeOf(u16);
+                            immediate_sizes[i] = @sizeOf(u16);
                         }
                         else if (immediate.? > std.math.maxInt(u8) and immediate.? <= std.math.maxInt(u16))
                         {
-                            immediate_sizes[i] += @sizeOf(u16);
+                            immediate_sizes[i] = @sizeOf(u16);
                         }
                         else if (immediate.? > std.math.maxInt(u16) and immediate.? <= std.math.maxInt(u32))
                         {
-                            immediate_sizes[i] += @sizeOf(u32);
+                            immediate_sizes[i] = @sizeOf(u32);
                         }
                         else
                         {
-                            immediate_sizes[i] += @sizeOf(u64);
+                            immediate_sizes[i] = @sizeOf(u64);
                         }
                     }
                 },
                 .instruction_address => {
                     immediate_count += 1;
-                    immediate_sizes[i] += @sizeOf(u64);
+                    immediate_sizes[i] = @sizeOf(u64);
                 },
                 .disabled => {},
             }
@@ -501,7 +501,15 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
 
                     try code_points.append(@bitCast(u16, register_pack));
                 },
-                .register_register => {},
+                .register_register => {
+                    var register_pack = Vm.OperandPack
+                    {
+                        .read_operand = @intToEnum(Vm.Register, instruction.operands[0].register),
+                        .write_operand = @intToEnum(Vm.Register, instruction.operands[1].register),
+                    };
+
+                    try code_points.append(@bitCast(u16, register_pack));
+                },
                 .register_register_register => {
                     var register_pack = Vm.OperandPack
                     {
@@ -580,7 +588,13 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
 
             const instruction_size = (code_points.items.len - first_code_point) * @sizeOf(u16);
 
-            std.debug.assert(instruction_size == instruction.encodedSize());
+            const encoded_size = instruction.encodedSize();
+
+            if (instruction_size != encoded_size)
+            {
+                std.log.info("instruction_size: {}, encoded_size: {}", .{ instruction_size, encoded_size });
+                unreachable;
+            }
 
             std.debug.print(" -> IR instruction(size = {}): {s}, operand_layout: {s}\n", .{ instruction.encodedSize() / 2, @tagName(instruction.opcode), @tagName(operand_layout) });
         }
@@ -620,7 +634,7 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
 
     std.mem.copy(u8, try export_section_fba.allocator().alloc(u8, exported_symbol_text.items.len), exported_symbol_text.items);
 
-    _ = try module.addSectionData(.exports, u8, export_section_data);
+    _ = try module.addSectionDataAligned(.exports, u8, export_section_data, @alignOf(Module.ExportSectionHeader));
 
     const relocation_section_data = try self.allocator.alloc(
         u8, 
@@ -637,7 +651,7 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
 
     _ = try relocation_section_fba.allocator().dupe(Module.Relocation, relocations.items);
 
-    _ = try module.addSectionData(.relocations, u8, relocation_section_data);
+    _ = try module.addSectionDataAligned(.relocations, u8, relocation_section_data, @alignOf(Module.RelocationSectionHeader));
 
     // const imports_section_data = try module.addSection(
     //     .imports, 

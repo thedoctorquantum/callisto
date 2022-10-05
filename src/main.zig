@@ -4,23 +4,8 @@ const clap = @import("clap");
 pub const Vm = @import("Vm.zig");
 pub const Assembler = @import("Assembler.zig");
 pub const Module = @import("Module.zig");
+pub const Loader = @import("Loader.zig");
 pub const Parser = @import("Parser.zig");
-
-comptime {
-    _ = Parser;
-}
-
-fn nativeTest(vm: *Vm) void 
-{    
-    const a0 = vm.getRegister(.a0);
-    const a1 = vm.getRegister(.a1);
-            
-    vm.setRegister(.a7, a0.* + a1.*);
-    
-    std.log.info("Hello from nativeTest!", .{});
-
-    (@intToPtr(*allowzero u8, 0)).* = 0; //lol
-}
 
 fn envMulAdd(a: u64, b: u64, c: u64) u64 
 {
@@ -56,67 +41,6 @@ fn run() !void
     // defer std.debug.assert(!gpa.deinit());
     
     const allocator = gpa.allocator();
-
-    //decode test
-    if (false)
-    {
-        var instructions_buffer = try gpa.allocator().create([1024]u16);
-        defer gpa.allocator().destroy(instructions_buffer);
-
-        var code_point: usize = 0;
-
-        const instruction_headers = @ptrCast([*]Vm.InstructionHeader, instructions_buffer)[0..instructions_buffer.len];
-        const instruction_registers = @ptrCast([*]Vm.OperandPack, instructions_buffer)[0..instructions_buffer.len];
-
-        //iadd c0, 32, c1;
-        instruction_headers[code_point] = Vm.InstructionHeader {
-            .opcode = .@"iadd",
-            .operand_layout = .register_immediate_register,
-            .operand_size = .@"16",
-            .immediate_size = .@"16",
-        };
-        code_point += 1;
-
-        instruction_registers[code_point] = Vm.OperandPack {
-            .read_operand = .c0,
-            .write_operand = .c1,
-
-            .read_operand1 = undefined,
-            .write_operand1 = undefined,
-        };
-        code_point += 1;
-
-        instructions_buffer[code_point] = 32;
-        code_point += 1;
-
-        instruction_headers[code_point] = Vm.InstructionHeader {
-            .opcode = .@"unreachable",
-            .operand_layout = .none,
-            .operand_size = .@"8",
-            .immediate_size = .@"8",
-        };
-        code_point += 1;
-
-        instruction_headers[code_point] = Vm.InstructionHeader {
-            .opcode = .@"break",
-            .operand_layout = .none,
-            .operand_size = .@"8",
-            .immediate_size = .@"8",
-        };
-        code_point += 1;
-
-        instruction_headers[code_point] = Vm.InstructionHeader {
-            .opcode = .@"return",
-            .operand_layout = .none,
-            .operand_size = .@"8",
-            .immediate_size = .@"8",
-        };
-        code_point += 1;
-
-        std.log.info("{any}", .{ instructions_buffer[0..code_point] });
-
-        Vm.decode(instructions_buffer[0..code_point]);
-    }
 
     if (false)
     {
@@ -476,15 +400,8 @@ fn run() !void
         defer module.sections.deinit(arena.allocator());
         defer module.sections_content.deinit(arena.allocator());
 
-        const instructions_bytes = module.getSectionData(.instructions, 0) orelse unreachable;
-
-        var empty_data: [1]u8 = undefined;
-
-        const data = module.getSectionData(.data, 0) orelse empty_data[0..0];
-
-        const instructions = @ptrCast([*]u16, @alignCast(@alignOf(u16), instructions_bytes.ptr))[0 .. instructions_bytes.len / @sizeOf(u16)];
-
-        @setRuntimeSafety(false);
+        const module_instance = try Loader.load(arena.allocator(), module);
+        defer Loader.unload(arena.allocator(), module_instance);
 
         const available_symbols = &[_][]const u8 
         {
@@ -498,7 +415,7 @@ fn run() !void
         _ = available_symbols;  
 
         //link
-        {
+        if (false) {
             if (module.getSectionData(.imports, 0)) |import_section_data|
             {
                 var offset: usize = 0;
@@ -554,75 +471,44 @@ fn run() !void
 
         if (false) if (module.getSectionData(.relocations, 0)) |relocation_data|
         {
-            const code_points = @ptrCast([*]u16, @alignCast(@alignOf(u16), instructions_bytes.ptr))[0..instructions_bytes.len / @sizeOf(u16)];
+            _ = relocation_data;
+            // const code_points = @ptrCast([*]u16, @alignCast(@alignOf(u16), instructions_bytes.ptr))[0..instructions_bytes.len / @sizeOf(u16)];
 
-            _ = code_points;
+            // _ = code_points;
 
-            var offset: usize = 0;
+            // var offset: usize = 0;
 
-            const header = @ptrCast(*const Module.RelocationSectionHeader, @alignCast(@alignOf(Module.RelocationSectionHeader), relocation_data.ptr));
+            // const header = @ptrCast(*const Module.RelocationSectionHeader, @alignCast(@alignOf(Module.RelocationSectionHeader), relocation_data.ptr));
 
-            offset += @sizeOf(Module.RelocationSectionHeader);
+            // offset += @sizeOf(Module.RelocationSectionHeader);
 
-            var relocation_index: usize = 0;
+            // var relocation_index: usize = 0;
 
-            while (relocation_index < header.relocation_count) : (relocation_index += 1)
-            {
-                const relocation = @ptrCast(*const Module.Relocation, @alignCast(@alignOf(Module.Relocation), relocation_data.ptr + offset));
+            // while (relocation_index < header.relocation_count) : (relocation_index += 1)
+            // {
+            //     const relocation = @ptrCast(*const Module.Relocation, @alignCast(@alignOf(Module.Relocation), relocation_data.ptr + offset));
 
-                std.log.info("relocation: {}", .{ relocation });
+            //     std.log.info("relocation: {}", .{ relocation });
 
-                switch (relocation.address_type)
-                {
-                    .data => {
-                        // instructions[relocation.instruction_address].operands[relocation.operand_index].immediate += @ptrToInt(data.ptr);
+            //     switch (relocation.address_type)
+            //     {
+            //         .data => {
+            //             // instructions[relocation.instruction_address].operands[relocation.operand_index].immediate += @ptrToInt(data.ptr);
 
-                        @setRuntimeSafety(false);
+            //             @setRuntimeSafety(false);
 
-                        @ptrCast(*u64, @alignCast(@alignOf(u64), instructions_bytes.ptr + relocation.address)).* = @ptrToInt(data.ptr);
-                    },
-                    else => unreachable
-                }
+            //             @ptrCast(*u64, @alignCast(@alignOf(u64), instructions_bytes.ptr + relocation.address)).* = @ptrToInt(data.ptr);
+            //         },
+            //         else => unreachable
+            //     }
 
-                offset += @sizeOf(Module.Relocation);
-            }
+            //     offset += @sizeOf(Module.Relocation);
+            // }
         };
 
         _ = main_address;
 
-        try Vm.decode(instructions);
-
-        // var stack: [1024 * 8]u64 = undefined;
-        // var call_stack: [64]Vm.CallFrame = undefined;
-
-        // var vm = Vm{
-        //     .stack = &stack,
-        //     .call_stack = &call_stack,
-        //     .natives = &[_]*const fn (*Vm) void {
-        //         &nativeTest,
-        //         Vm.extFn(envMulAdd),
-        //         Vm.extFn(envPow),
-        //         Vm.extFn(puts),
-        //         Vm.extFn(alloc),
-        //     },
-        // };
-
-        // vm.init();
-        // defer vm.deinit();
-
-        // const executable = Vm.Executable {
-        //     .instructions = instructions,
-        //     .data = data,
-        // };
-
-        // if (main_address) |address| 
-        // {
-        //     vm.execute(executable, address) catch |err| switch (err) 
-        //     {
-        //         error.BreakInstruction => std.log.info("Breakpoint hit", .{}),
-        //         else => return err,
-        //     };
-        // }
+        try Vm.execute(module_instance);
 
         return;
     }

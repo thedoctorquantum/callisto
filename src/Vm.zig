@@ -1,12 +1,12 @@
 const std = @import("std");
+const Loader = @import("Loader.zig");
 const Vm = @This();
 
-//core instructions
 pub const OpCode = enum(u8) 
 {
     nullop,
-    @"unreachable", //Unrecoverable Trap
-    @"break", //Recoverable Trap
+    @"unreachable",
+    @"break",
     move,
     clear,
     read8,
@@ -19,12 +19,12 @@ pub const OpCode = enum(u8)
     write64,
     iadd,
     isub,
-    imul, //imul r, im, r 
+    imul,
     idiv,
-    islt, //signed less than
-    isgt, //signed greater than
-    isle, //signed less than or equal
-    isge, //signed greater than or equal
+    islt,
+    isgt,
+    isle,
+    isge,
     band,
     bor,
     bnot,
@@ -39,7 +39,6 @@ pub const OpCode = enum(u8)
     extcall,
     @"return",
 
-    //implementation instructions
     imp7 = std.math.maxInt(u8) - 7,
     imp6 = std.math.maxInt(u8) - 6,
     imp5 = std.math.maxInt(u8) - 5,
@@ -131,6 +130,8 @@ pub const OperandPack = packed struct(u16)
     // } = .{ .immediate = 0, },
 };
 
+pub const NativeProcedure = fn (registers: *[16]u64, data_stack_pointer: [*]align(8) u8) void;
+
 pub const ExecuteError = error 
 {
     InvalidOpcode,
@@ -143,15 +144,20 @@ pub const ExecuteError = error
     MemoryAccessViolation,
 };
 
-pub fn decode(instructions: []const u16) ExecuteError!void 
+pub fn execute(module: Loader.ModuleInstance) ExecuteError!void 
 {
-    var registers = std.mem.zeroes([16]u64);
-
     @setRuntimeSafety(false);
 
-    var instruction_pointer: [*]align(2) const u8 = @ptrCast([*]const u8, instructions.ptr);
+    var registers = std.mem.zeroes([16]u64);
+
+    var instruction_pointer: [*]align(2) const u8 = @ptrCast([*]const u8, module.instructions.ptr);
 
     const instructions_begin: [*]align(2) const u8 = instruction_pointer;
+
+    var data_stack_pointer: [*]u64 = module.data_stack.ptr;
+    var call_stack_pointer: [*]Vm.CallFrame = module.call_stack.ptr;
+
+    _ = call_stack_pointer;
 
     //- Each Instruction loop can fetch 1 or more code points,
     //- Decode Loop:
@@ -172,8 +178,6 @@ pub fn decode(instructions: []const u16) ExecuteError!void
         var write_operand1: *u64 = undefined;
 
         _ = write_operand1;
-
-        std.log.info("code_point: {}", .{ (@ptrToInt(instruction_pointer) - @ptrToInt(instructions_begin)) / 2 });
 
         switch (instruction_header.operand_layout)
         {
@@ -225,7 +229,7 @@ pub fn decode(instructions: []const u16) ExecuteError!void
 
                 write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
 
-                std.log.info("Operands: {}, {s}", .{ read_operand0, @tagName(register_operands.write_operand) });
+                std.log.info("Operands: {}, {s}({})", .{ read_operand0, @tagName(register_operands.write_operand), write_operand0.* });
             },
             .register => {
                 const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
@@ -320,12 +324,10 @@ pub fn decode(instructions: []const u16) ExecuteError!void
             .@"break" => return error.BreakInstruction,
             .move => write_operand0.* = read_operand0,
             .clear => write_operand0.* = 0,
-            .iadd => {
-                write_operand0.* = read_operand0 +% read_operand1;
-            },
-            .isub => unreachable,
-            .imul => unreachable,
-            .idiv => unreachable,
+            .iadd => write_operand0.* = read_operand0 +% read_operand1,
+            .isub => write_operand0.* = read_operand0 -% read_operand1,
+            .imul => write_operand0.* = read_operand0 *% read_operand1,
+            .idiv => write_operand0.* = read_operand0 / read_operand1,
             .islt => unreachable,
             .isgt => unreachable,
             .isle => unreachable,
@@ -344,7 +346,9 @@ pub fn decode(instructions: []const u16) ExecuteError!void
             .read16 => unreachable,
             .read32 => unreachable,
             .read64 => unreachable,
-            .write8 => unreachable,
+            .write8 => {
+                @intToPtr(*allowzero u8, write_operand0.*).* = @intCast(u8, read_operand0);
+            },
             .write16 => unreachable,
             .write32 => unreachable,
             .write64 => unreachable,
@@ -356,8 +360,13 @@ pub fn decode(instructions: []const u16) ExecuteError!void
                 }
             },
             .call => unreachable,
-            .@"return" => unreachable,
-            .extcall => unreachable,
+            .@"return" => return,
+            .extcall => {
+                module.natives[read_operand0](
+                    &registers,
+                    @ptrCast([*]u8, data_stack_pointer),
+                );
+            },
             .imp0, .imp1, .imp2, .imp3, .imp4, .imp5, .imp6, .imp7 => {},
             _ => unreachable,
         }
@@ -390,109 +399,10 @@ pub const CallFrame = struct
     registers: [16]u64,
 };
 
-//Generates a wrapper for any zig function
-pub fn extFn(comptime proc: anytype) *const fn(*Vm) void
-{
-    const arg_types = @typeInfo(@TypeOf(proc)).Fn.args;
-
-    const S = struct
-    {
-        pub fn function(vm: *Vm) void
-        {
-            comptime var args_type_fields: [arg_types.len]std.builtin.Type.StructField = undefined;
-
-            inline for (arg_types) |arg_type, i|
-            {
-                args_type_fields[i] = .{
-                    .field_type = arg_type.arg_type.?,
-                    .alignment = @alignOf(arg_type.arg_type.?),
-                    .default_value = null,
-                    .is_comptime = false,
-                    .name = comptime std.fmt.comptimePrint("{}", .{ i }),
-                };
-            }
-
-            const ArgsType = @Type(.{ .Struct = .{ 
-                .layout = .Auto,
-                .is_tuple = true,
-                .fields = &args_type_fields,
-                .decls = &[_]std.builtin.Type.Declaration {},
-            }});
-
-            var args: ArgsType = undefined;
-
-            comptime var register_index = 0;
-
-            inline for (comptime std.meta.fields(ArgsType)) |_, i|
-            {
-                const ArgType = @TypeOf(args[i]);
-
-                switch (@typeInfo(ArgType))
-                {
-                    .Int => {
-                        args[i] = vm.getRegister(@intToEnum(Register, 8 + register_index)).*;
-                    },
-                    .Pointer => |pointer| {
-                        switch (pointer.size)
-                        {
-                            .One, .Many => {
-                                args[i] = @intToPtr(ArgType, vm.getRegister(@intToEnum(Register, 8 + register_index)).*);
-                            },
-                            .Slice => {
-                                const register0 = vm.getRegister(@intToEnum(Register, 8 + register_index)).*;
-                                const register1 = vm.getRegister(@intToEnum(Register, 8 + register_index + 1)).*;
-
-                                register_index += 1;
-
-                                args[i] = @intToPtr([*]std.meta.Child(ArgType), register0)[0..register1];
-                            },
-                            else => unreachable 
-                        }
-                    },
-                    else => unreachable
-                }
-
-                register_index += 1;
-            }
-
-            const return_value = @call(
-                .{ .modifier = .always_inline }, 
-                proc,
-                args,
-            );
-
-            switch (@typeInfo(@TypeOf(return_value)))
-            {
-                .Int => {
-                    vm.setRegister(.a7, return_value);
-                },
-                .Pointer => |pointer| {
-                    switch (pointer.size)
-                    {
-                        .One, .Many => {
-                            vm.setRegister(.a7, @intCast(u64, @ptrToInt(return_value)));
-                        },
-                        .Slice => {
-                            vm.setRegister(.a7, @ptrToInt(return_value.ptr));
-                            vm.setRegister(.a6, @intCast(u64, return_value.len));
-                        },
-                        else => unreachable 
-                    }
-                },
-                .Void => {},
-                else => unreachable
-            }
-            
-        }
-    };
-
-    return &S.function;
-}
-
 program_pointer: usize = 0,
-stack_pointer: usize = 0,
 registers: [16]u64 = std.mem.zeroes([16]u64),
 stack: []u64,
+stack_pointer: usize = 0,
 call_stack: []CallFrame,
 call_stack_pointer: usize = 0,
 natives: []const *const fn(*Vm) void,
@@ -541,7 +451,7 @@ fn segfaultHandler(_: c_int) callconv(.C) void
 var segfault_jump_buf: jump_buf = undefined;
 
 ///Legacy fixed-width implementation
-pub fn execute(self: *Vm, executable: Executable, instruction_pointer: usize) ExecuteError!void
+pub fn execute_old(self: *Vm, executable: Executable, instruction_pointer: usize) ExecuteError!void
 {
     self.program_pointer = instruction_pointer;
 
