@@ -148,7 +148,7 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
 
     while (tokenizer.next()) |token|
     {
-        std.log.info("token({}): {s}", .{ token.tag, source[token.start..token.end] });
+        std.log.info("token({s}): {s}", .{ @tagName(token.tag), source[token.start..token.end] });
         
         switch (state)
         {
@@ -162,15 +162,13 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
                     is_export = true;
                 },
                 .keyword_import => {
-                    std.log.info("Reached keyword_import", .{});
-                    
                     is_import = true;
                 },
                 .identifier => {
                     //Should use look ahead
                     var next = tokenizer.next() orelse break;
 
-                    std.log.info("token({}): {s}", .{ next.tag, source[next.start..next.end] });
+                    std.log.info("token({s}): {s}", .{ @tagName(next.tag), source[next.start..next.end] });
 
                     if (next.tag == .colon) 
                     {

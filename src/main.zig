@@ -284,7 +284,7 @@ fn run() !void
                         const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
                         i += 1;
 
-                        try std.fmt.format(stdout, "{s}, ", .{ @tagName(registers.write_operand) });
+                        try std.fmt.format(stdout, "{s}, ", .{ @tagName(registers.read_operand) });
 
                         switch (header.immediate_size)
                         {
@@ -349,7 +349,7 @@ fn run() !void
                             },
                         }
 
-                        try std.fmt.format(stdout, "{s}", .{ @tagName(registers.read_operand) });
+                        try std.fmt.format(stdout, "{s}", .{ @tagName(registers.write_operand) });
                     },
                     .immediate => {
                         switch (header.immediate_size)
@@ -590,7 +590,7 @@ fn run() !void
 
         _ = main_address;
 
-        Vm.decode(instructions);
+        try Vm.decode(instructions);
 
         // var stack: [1024 * 8]u64 = undefined;
         // var call_stack: [64]Vm.CallFrame = undefined;

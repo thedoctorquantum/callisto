@@ -13,10 +13,16 @@ import alloc;
 message: "hello, world";
 
 export main:
+    nullop;
     //loop:
 
+    //while_true: jump while_true;
+
     loop:
-        jump loop;
+        iadd c0, 1, c0;
+
+        neql c0, 100, c1;
+        jumpif c1, loop;
 
     return;
 

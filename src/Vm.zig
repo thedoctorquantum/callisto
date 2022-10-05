@@ -1,10 +1,9 @@
 const std = @import("std");
 const Vm = @This();
-// const Module = @import("Module.zig");
 
+//core instructions
 pub const OpCode = enum(u8) 
 {
-    //core instructions
     nullop,
     @"unreachable", //Unrecoverable Trap
     @"break", //Recoverable Trap
@@ -87,7 +86,7 @@ pub const OperandAddressingSize = enum(u2)
 
 pub const OperandLayout = enum(u4)
 {
-    none, //no operands
+    none,
     register, //r0;
     register_register, //r0, r1;
     register_register_register, //r0, r1, r2;
@@ -109,10 +108,10 @@ pub const InstructionHeader = packed struct(u16)
 };
 
 //There are 4 operand registers available to instructions
-//ro0: readonly_0; (64 bits)
-//ro1: readonly_1; (64 bits)
-//wo0: writeonly_0; (64 bits)
-//wo1: writeonly_1; (64 bits)
+//ro0: readonly_0; (64 bits) (register or immediate)
+//ro1: readonly_1; (64 bits) (register or immediate)
+//rw0: readwrite_0; (64 bits) (register)
+//rw1: readwrite_1; (64 bits) (register)
 pub const OperandPack = packed struct(u16)
 {
     read_operand: Register = .c0, //readonly register 1
@@ -132,15 +131,27 @@ pub const OperandPack = packed struct(u16)
     // } = .{ .immediate = 0, },
 };
 
-pub fn decode(instructions: []const u16) void 
+pub const ExecuteError = error 
+{
+    InvalidOpcode,
+    IllegalInstructionAccess,
+    UnreachableInstruction,
+    BreakInstruction,
+    DivisionByZero,
+    StackOverflow,
+    StackUnderflow,
+    MemoryAccessViolation,
+};
+
+pub fn decode(instructions: []const u16) ExecuteError!void 
 {
     var registers = std.mem.zeroes([16]u64);
 
     @setRuntimeSafety(false);
 
-    var instruction_pointer = @ptrCast([*]const u8, instructions.ptr);
+    var instruction_pointer: [*]align(2) const u8 = @ptrCast([*]const u8, instructions.ptr);
 
-    const instructions_begin = instruction_pointer;
+    const instructions_begin: [*]align(2) const u8 = instruction_pointer;
 
     //- Each Instruction loop can fetch 1 or more code points,
     //- Decode Loop:
@@ -252,11 +263,11 @@ pub fn decode(instructions: []const u16) void
                         instruction_pointer += @sizeOf(u16);
                     },
                     .@"32" => {
-                        read_operand1 = @ptrCast(*const u32, @alignCast(@alignOf(u32), instruction_pointer)).*; //unaligned read
+                        read_operand1 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
                         instruction_pointer += @sizeOf(u32);
                     },
                     .@"64" => { 
-                        read_operand1 = @ptrCast(*const u64, @alignCast(@alignOf(u64), instruction_pointer)).*; //unaligned read
+                        read_operand1 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
                         instruction_pointer += @sizeOf(u64);
                     },
                 }
@@ -266,7 +277,37 @@ pub fn decode(instructions: []const u16) void
 
                 std.log.info("Operands: {s}, {}, {s}", .{ @tagName(register_operands.read_operand), read_operand1, @tagName(register_operands.write_operand) });
             },
-            else => unreachable,
+            .register_immediate => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                switch (instruction_header.immediate_size)
+                {
+                    .@"8" => {
+                        read_operand1 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"16" => {
+                        read_operand1 = @ptrCast(*const u16, instruction_pointer).*;
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"32" => {
+                        read_operand1 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u32);
+                    },
+                    .@"64" => { 
+                        read_operand1 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u64);
+                    },
+                }
+
+                read_operand0 = registers[@enumToInt(register_operands.read_operand)];
+
+                std.log.info("Operands: {}, {}", .{ read_operand0, read_operand1 });
+            },
+            .immediate_immediate => unreachable,
+            .immediate_register_register => unreachable,
+            _ => unreachable,
         }
 
         std.log.info("{s}", .{ @tagName(instruction_header.opcode) });
@@ -274,18 +315,56 @@ pub fn decode(instructions: []const u16) void
         //Dispatch/Execution
         switch (instruction_header.opcode)
         {
+            .nullop => {},
+            .@"unreachable" => return error.UnreachableInstruction,
+            .@"break" => return error.BreakInstruction,
+            .move => write_operand0.* = read_operand0,
+            .clear => write_operand0.* = 0,
             .iadd => {
                 write_operand0.* = read_operand0 +% read_operand1;
             },
-            .@"return" => return,
-            else => {},
+            .isub => unreachable,
+            .imul => unreachable,
+            .idiv => unreachable,
+            .islt => unreachable,
+            .isgt => unreachable,
+            .isle => unreachable,
+            .isge => unreachable,
+            .band => unreachable,
+            .bor => unreachable,
+            .bnot => unreachable,
+            .lnot => unreachable,
+            .eql => unreachable,
+            .neql => {
+                write_operand0.* = @boolToInt(read_operand0 != read_operand1);
+            },
+            .push => unreachable,
+            .pop => unreachable,
+            .read8 => unreachable,
+            .read16 => unreachable,
+            .read32 => unreachable,
+            .read64 => unreachable,
+            .write8 => unreachable,
+            .write16 => unreachable,
+            .write32 => unreachable,
+            .write64 => unreachable,
+            .jump => instruction_pointer = @ptrCast(@TypeOf(instruction_pointer), @alignCast(2, instructions_begin + read_operand0)),
+            .jumpif => {
+                if (read_operand0 == 1)
+                {
+                    instruction_pointer = @ptrCast(@TypeOf(instruction_pointer), @alignCast(2, instructions_begin + read_operand1));
+                }
+            },
+            .call => unreachable,
+            .@"return" => unreachable,
+            .extcall => unreachable,
+            .imp0, .imp1, .imp2, .imp3, .imp4, .imp5, .imp6, .imp7 => {},
+            _ => unreachable,
         }
     }
 } 
 
-comptime {
-    _ = decode;
-}
+//Legacy Implementation
 
 pub const Instruction = struct
 {
@@ -307,7 +386,7 @@ pub const Executable = struct
 
 pub const CallFrame = struct
 {
-    return_pointer: usize,
+    return_pointer: u64,
     registers: [16]u64,
 };
 
@@ -446,18 +525,7 @@ pub inline fn setRegister(self: *Vm, register: Register, value: u64) void
     self.registers[@enumToInt(register)] = value;
 }
 
-pub const ExecuteError = error 
-{
-    InvalidOpcode,
-    IllegalInstructionAccess,
-    UnreachableInstruction,
-    BreakInstruction,
-    DivisionByZero,
-    StackOverflow,
-    StackUnderflow,
-    MemoryAccessViolation,
-};
-
+//Should implement setjmp/longjump in inline asm instead of linking to libc dynamically
 const jump_buf = extern struct { a: c_int, b: c_int, c: c_int, d: c_int, e: c_int, f: c_int }; 
 
 extern "c" fn setjmp(buf: *jump_buf) callconv(.C) c_int;
@@ -472,6 +540,7 @@ fn segfaultHandler(_: c_int) callconv(.C) void
 
 var segfault_jump_buf: jump_buf = undefined;
 
+///Legacy fixed-width implementation
 pub fn execute(self: *Vm, executable: Executable, instruction_pointer: usize) ExecuteError!void
 {
     self.program_pointer = instruction_pointer;
