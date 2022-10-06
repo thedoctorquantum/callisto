@@ -18,8 +18,16 @@ entry:
 
     clear c0;
 
-    label: bnot c0, c0;
+    label: 
+        bnot c0, c0;
     jumpif c0, if_else;
+
+    {
+        iadd c0, 10, c1;
+        isub c1, 3, c2;
+        imul c2, 4, c3;
+        write8 c3, 0x00;
+    }
 
     if_then: {
         jump if_end;

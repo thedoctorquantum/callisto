@@ -1,7 +1,7 @@
 const Tokenizer = @This();
 
 const std = @import("std");
-const Vm = @import("Vm.zig");
+const Vm = @import("zyte").Vm;
 
 source: []const u8,
 index: usize = 0,

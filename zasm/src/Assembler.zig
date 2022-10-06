@@ -1,9 +1,11 @@
 const Assembler = @This();
 
+const zyte = @import("zyte");
+const Vm = zyte.Vm;
+const Module = zyte.Module;
+
 const std = @import("std");
-const Vm = @import("Vm.zig");
 const Tokenizer = @import("Tokenizer.zig");
-const Module = @import("Module.zig");
 
 allocator: std.mem.Allocator,
 
