@@ -36,7 +36,7 @@ pub const OpCode = enum(u8)
     jump,
     jumpif,
     call,
-    extcall,
+    ecall,
     @"return",
 
     imp7 = std.math.maxInt(u8) - 7,
@@ -361,7 +361,7 @@ pub fn execute(module: Loader.ModuleInstance) ExecuteError!void
             },
             .call => unreachable,
             .@"return" => return,
-            .extcall => {
+            .ecall => {
                 module.natives[read_operand0](
                     &registers,
                     @ptrCast([*]u8, data_stack_pointer),

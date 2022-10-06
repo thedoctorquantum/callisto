@@ -7,30 +7,6 @@ pub const Module = @import("Module.zig");
 pub const Loader = @import("Loader.zig");
 pub const Parser = @import("Parser.zig");
 
-fn envMulAdd(a: u64, b: u64, c: u64) u64 
-{
-    const res = a * b + c;
-
-    std.log.info("envMulAdd {}", .{ res });
-
-    return res;
-}
-
-fn envPow(a: u64, b: u64) u64 
-{
-    return std.math.pow(u64, a, b);
-}
-
-fn puts(string: []const u8) void 
-{
-    std.io.getStdOut().writer().print("{s}\n", .{ string }) catch unreachable;
-}
-
-fn alloc(size: u64) []const u8
-{
-    return @ptrCast([*]const u8, std.c.malloc(size))[0..size];
-}
-
 pub usingnamespace if (@import("root") == @This()) struct {
     pub const main = run;
 } else struct {};

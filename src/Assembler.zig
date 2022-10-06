@@ -211,7 +211,7 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
                     {
                         std.log.info("Found import '{s}'", .{ source[token.start..token.end] });
 
-                        labels.put(source[token.start..token.end], .{ .address = 0, .tag = .extern_instruction }) catch unreachable;
+                        try labels.put(source[token.start..token.end], .{ .address = 0, .tag = .extern_instruction });
 
                         try symbol_imports.append(
                             .{ 
@@ -343,14 +343,10 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
                 };
             },
             .extern_instruction => {
-                instructions.items[patch.instruction_index].operands[patch.operand_index] = .{                            
-                    .immediate = null
-                };
-
                 const symbol_index = block: {
                     for (symbol_imports.items) |symbol_import, i|
                     {
-                        const symbol_import_name = symbol_import_text.items[symbol_import.offset..symbol_import.size];
+                        const symbol_import_name = symbol_import_text.items[symbol_import.offset..symbol_import.offset + symbol_import.size];
 
                         if (std.mem.eql(u8, symbol_import_name, patch.label_name))
                         {
@@ -361,12 +357,16 @@ pub fn assemble(self: *Assembler, source: []const u8) !Module
                     break :block null;
                 };
 
-                std.log.info("symbol_index: {?}", .{ symbol_index });
+                instructions.items[patch.instruction_index].operands[patch.operand_index] = .{                            
+                    .immediate = symbol_index
+                };
 
-                try references.append(.{
-                    .address = @intCast(u32, patch.instruction_index),
-                    .symbol = @intCast(u32, symbol_index orelse unreachable), 
-                });
+                // std.log.info("symbol_index: {?}", .{ symbol_index });
+
+                // try references.append(.{
+                //     .address = @intCast(u32, patch.instruction_index),
+                //     .symbol = @intCast(u32, symbol_index orelse unreachable), 
+                // });
             },
         }
     }    
