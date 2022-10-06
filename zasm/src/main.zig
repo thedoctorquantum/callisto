@@ -4,16 +4,37 @@ const clap = @import("clap");
 pub const Assembler = @import("Assembler.zig");
 pub const Tokenizer = @import("Tokenizer.zig");
 pub const Parser = @import("Parser.zig");
+pub const Ast = @import("Ast.zig");
 
 pub usingnamespace if (@import("root") == @This()) struct {
     pub const main = run;
 } else struct {};
 
+fn traverseTree(ast: Ast, node: Ast.Node.Index) void
+{
+    const node_data = ast.nodes.get(node);
+
+    switch (node_data.tag)
+    {
+        else => std.log.info("Node: {s}", .{ @tagName(node_data.tag) }),
+    }
+
+    if (node_data.data.left != 0)
+    {
+        traverseTree(ast, node_data.data.left);
+    }
+    
+    if (node_data.data.right != 0)
+    {
+        traverseTree(ast, node_data.data.right);
+    }
+}
+
 ///Command line interface driver
 fn run() !void
 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
-    defer std.debug.assert(!gpa.deinit());
+    // defer std.debug.assert(!gpa.deinit());
 
     const allocator = gpa.allocator();
 
@@ -27,11 +48,27 @@ fn run() !void
             .token_ends = &.{},
             .token_index = 0,
             .errors = .{},
+            .nodes = .{},
+            .extra_data = .{},
+            .ir = .{
+                .allocator = allocator,
+                .instructions = .{},
+                .symbol_table = .{},
+                .data = .{},
+            },
+            .scopes = .{},
+            .scope_patches = .{},
         };
         defer parser.tokens.deinit(parser.allocator);
         defer parser.errors.deinit(parser.allocator);
 
-        parser.parse() catch {
+        const ir = parser.parse() catch |e| {
+
+            if (true)
+            {
+                return e;
+            }
+
             for (parser.errors.items) |error_union|
             {
                 switch (error_union)
@@ -95,6 +132,19 @@ fn run() !void
 
             return;
         };
+
+        {
+            var i: u32 = 0;
+
+            while (i < ir.instructions.items.len)
+            {
+                const instruction = ir.instructions.items[i];
+
+                std.log.info("{s}", .{ @tagName(instruction.operation) });
+
+                i = instruction.next;
+            }
+        }
 
         std.log.info("basic_syntax.zasm parsed successfully", .{});
 

@@ -13,31 +13,22 @@ export proc main {
     nullop;
 entry: 
     move a0, message;
-    move a1, $sizeof(message);
-    call print;
+    move a1, 10;
+    call 0;
 
     clear c0;
 
     label: 
         bnot c0, c0;
-    jumpif c0, if_else;
+    jumpif c0, entry;
 
     {
         iadd c0, 10, c1;
         isub c1, 3, c2;
         imul c2, 4, c3;
         write8 c3, 0x00;
-    }
 
-    if_then: {
-        jump if_end;
-    }
-
-    if_else: {
-        jump if_end;
-    }
-
-    if_end: {
+        jump end;
 
     }
 
@@ -49,7 +40,7 @@ entry:
     loop_end: {}
 
 end:
-    return 0;
+    return;
 }
 
 /* print function */
