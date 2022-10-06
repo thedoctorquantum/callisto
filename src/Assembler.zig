@@ -11,6 +11,7 @@ pub const IRInstruction = struct
 {
     opcode: Vm.OpCode,
     operands: [3]Operand = .{ .disabled, .disabled, .disabled },
+    next: u32 = 0,
 
     pub const Operand = union(enum) 
     {

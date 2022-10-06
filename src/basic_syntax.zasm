@@ -2,16 +2,23 @@
 var message = "hello, world!";
 var other_message = "bye, world!";
 
+/*
+
+Called by the virtual machine
+
+*/
+
 //entrypoint procedure
 export proc main {
-entry:
+    nullop;
+entry: 
     move a0, message;
     move a1, $sizeof(message);
     call print;
 
     clear c0;
 
-    bnot c0, c0;
+    label: bnot c0, c0;
     jumpif c0, if_else;
 
     if_then: {
@@ -39,6 +46,13 @@ end:
 
 /* print function */
 proc print {
-    extcall 0;
+    ecall 0;
+
+    {
+        ecall 0;
+        ecall 1;
+        ecall 2;
+    }
+
     return;
 }

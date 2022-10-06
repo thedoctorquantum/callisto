@@ -303,6 +303,7 @@ pub const Token = struct
             .literal_hex, 
             .literal_integer, 
             .literal_string,
+            .literal_char,
             .opcode,
             .context_register,
             .argument_register,
@@ -317,6 +318,9 @@ pub const Token = struct
             .equals => "=",
             .left_brace => "{",
             .right_brace => "}",
+            .left_paren => "(",
+            .right_paren => ")",
+            .dollar => "$",
         };
     }
 

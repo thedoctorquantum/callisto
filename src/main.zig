@@ -3,6 +3,7 @@ const clap = @import("clap");
 
 pub const Vm = @import("Vm.zig");
 pub const Assembler = @import("Assembler.zig");
+pub const Tokenizer = @import("Tokenizer.zig");
 pub const Module = @import("Module.zig");
 pub const Loader = @import("Loader.zig");
 pub const Parser = @import("Parser.zig");
@@ -18,7 +19,7 @@ fn run() !void
     
     const allocator = gpa.allocator();
 
-    if (false)
+    if (true)
     {
         var parser: Parser = .{ 
             .allocator = allocator,  
@@ -31,7 +32,61 @@ fn run() !void
             .errors = .{},
         };    
 
-        try parser.parse();
+        parser.parse() catch {
+            for (parser.errors.items) |error_union|
+            {
+                switch (error_union)
+                {
+                    .expected_token => |expected_token|
+                    {
+                        const line_number = std.mem.count(u8, parser.source[0..expected_token.offset], "\n");
+
+                        var line_begin: usize = expected_token.offset;
+                        var line_end: usize = expected_token.offset;
+
+                        while (line_begin >= 0)
+                        {
+                            const char = parser.source[line_begin];
+
+                            switch (char)
+                            {
+                                '\n', '\r', 0 => break,
+                                else => line_begin -= 1,
+                            }
+                        }
+
+                        while (line_end < parser.source.len)
+                        {
+                            const char = parser.source[line_end];
+
+                            switch (char)
+                            {
+                                '\n', '\r', 0 => break,
+                                else => line_end += 1,
+                            }
+                        }
+
+                        const column = line_end - line_begin;
+
+                        try std.fmt.format(std.io.getStdErr().writer(), "Error: expected '{s}' at {s}:{}:{}\n", 
+                        .{  
+                            Tokenizer.Token.lexeme(expected_token.tag) orelse @tagName(expected_token.tag), 
+                            "/home/zak/Dev/Zig/Zyte/src/basic_syntax.zasm",
+                            line_number + 1, 
+                            column 
+                        });
+
+                        try std.fmt.format(std.io.getStdErr().writer(), "{s}\n", .{ parser.source[line_begin..line_end] });
+                    }
+                }
+            }
+
+            return;
+        };
+
+        std.log.info("basic_syntax.zasm parsed successfully", .{});
+
+        return;
     }
 
     const params = comptime clap.parseParamsComptime(

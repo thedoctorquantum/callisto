@@ -2,14 +2,12 @@ const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");
 const Token = Tokenizer.Token;
 
-pub const Error = struct 
+pub const Error = union(enum) 
 {
-    tag: Tag,
-
-    pub const Tag = enum 
-    {
-        expected_opcode,
-    };
+    expected_token: struct { 
+        tag: Token.Tag,
+        offset: u32,
+    },
 };
 
 allocator: std.mem.Allocator,
@@ -54,9 +52,9 @@ pub fn parse(self: *@This()) !void
 
     while (self.token_index < self.token_tags.len)
     {
-        self.parseProcedure() catch 
         self.parseVar() catch 
-            continue;
+        self.parseProcedure() catch 
+            return error.ExpectedToken;
     }
 }
 
@@ -70,7 +68,7 @@ pub fn parseVar(self: *@This()) !void
 
     _ = try self.expectToken(.semicolon);
 
-    std.log.info("parseVar\n", .{});
+    std.log.info("\nparseVar\n", .{});
 }
 
 pub fn parseProcedure(self: *@This()) !void 
@@ -87,23 +85,42 @@ pub fn parseProcedure(self: *@This()) !void
 
     while (true)
     {
-        self.parseInstruction() catch break;
+        self.parseBasicBlock() catch break;
     }   
 
     _ = try self.expectToken(.right_brace);
 
-    std.log.info("parseProcedure\n", .{});
+    std.log.info("\nparseProcedure\n", .{});
 }
 
-pub fn parseInstruction(self: *@This()) !void 
+pub fn parseBasicBlock(self: *@This()) !void
 {
     const label = self.eatToken(.identifier);
 
     if (label != null)
     {
-        _ = try self.expectToken(.semicolon);
+        _ = try self.expectToken(.colon);
     }
 
+    if (self.eatToken(.left_brace) != null)
+    {
+        while (true)
+        {
+            self.parseBasicBlock() catch break;
+        }  
+
+        _ = try self.expectToken(.right_brace);
+
+        std.log.info("\nparseBasicBlock\n", .{});
+    }
+    else 
+    {
+        try self.parseInstruction();
+    }
+}
+
+pub fn parseInstruction(self: *@This()) !void 
+{
     const opcode = try self.expectToken(.opcode);
 
     _ = opcode;
@@ -124,7 +141,7 @@ pub fn parseInstruction(self: *@This()) !void
 
     _ = try self.expectToken(.semicolon);
 
-    std.log.info("parseInstruction\n", .{});
+    std.log.info("\nparseInstruction\n", .{});
 }
 
 pub fn parseBuiltinFunction(self: *@This()) !u32
@@ -140,7 +157,7 @@ pub fn parseBuiltinFunction(self: *@This()) !u32
 
     _ = try self.expectToken(.right_paren);
 
-    std.log.info("parseBuiltinFunction\n", .{});
+    std.log.info("\nparseBuiltinFunction\n", .{});
 
     return 0; //return the "primary" token
 }
@@ -155,6 +172,16 @@ pub fn parseIntegerLiteral(self: *@This()) !u32
 
 pub fn expectToken(self: *@This(), tag: Token.Tag) !u32
 {
+    errdefer {
+        self.errors.append(self.allocator, 
+        .{ 
+            .expected_token = .{
+                .tag = tag,
+                .offset = self.token_starts[self.token_index - 1]
+            }
+        }) catch unreachable;
+    }
+
     const value = self.eatToken(tag) orelse error.ExpectedToken;
 
     return value;
@@ -164,7 +191,7 @@ pub fn eatToken(self: *@This(), tag: Token.Tag) ?u32
 {
     if (self.token_tags[self.token_index] == tag)
     {
-        std.log.info("Ate token {s} {s}", .{ @tagName(tag), self.source[self.token_starts[self.token_index]..self.token_ends[self.token_index]] });
+        std.log.info("Ate token: {s}: {s}", .{ @tagName(tag), self.source[self.token_starts[self.token_index]..self.token_ends[self.token_index]] });
     }
 
     return if (self.token_tags[self.token_index] == tag) self.nextToken() else null;
