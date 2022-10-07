@@ -119,6 +119,11 @@ pub fn parse(self: *@This()) !IR
             return error.ExpectedToken;
     }
 
+    if (self.scope_patches.count() > 0)
+    {
+        return error.PatchesNotResolved;
+    }
+
     self.popScope();
 
     return self.ir;
@@ -177,13 +182,19 @@ fn getSymbolAtScope(self: *@This(), string: []const u8, scope: usize) !u32
     };
 }
 
-pub fn defineSymbol(self: *@This(), string: []const u8, value: u32) !void
+fn defineSymbol(self: *@This(), string: []const u8, value: u32) !void
 {
     if (self.scope_patches.get(string)) |patch|
     {
         if ((self.scopes.items.len - 1 <= patch.scope_level and !patch.scope_closed) or 
             (self.scopes.items.len - 1 < patch.scope_level and patch.scope_closed))
         {
+            self.ir.instructions.items[patch.instruction_index].operands[patch.operand_index] = .{
+                .symbol = value
+            };
+
+            std.log.info("Patched referenced symbol {s} with value %G{}", .{ string, value });
+
             _ = self.scope_patches.remove(string);
         }
     }
@@ -191,7 +202,7 @@ pub fn defineSymbol(self: *@This(), string: []const u8, value: u32) !void
     try self.scopes.items[self.scopes.items.len - 1].locals.put(self.allocator, string, value);
 }
 
-pub fn definePatch(self: *@This(), string: []const u8, instruction_index: u32, operand_index: u32) !void 
+fn definePatch(self: *@This(), string: []const u8, instruction_index: u32, operand_index: u32) !void 
 {
     try self.scope_patches.put(self.allocator, string, .{
         .token_referenced = self.token_index,
@@ -209,18 +220,80 @@ pub fn parseVar(self: *@This()) !void
     const identifier_token = try self.expectToken(.identifier);
     _ = try self.expectToken(.equals);
 
-    const value_token = self.eatToken(.literal_string) orelse try self.parseIntegerLiteral();
+    const identifier = self.source[self.token_starts[identifier_token]..self.token_ends[identifier_token]];
+
+    const value_token = self.eatToken(.literal_string) orelse 
+                        self.parseIntegerLiteral() catch {
+        const result = try self.parseBuiltinFunction();
+
+        if (result) |result_value|
+        {
+            const symbol = try self.ir.addGlobal(.{ 
+                .integer = result_value
+            });
+
+            try self.defineSymbol(identifier, @intCast(u32, symbol));
+
+            _ = try self.expectToken(.semicolon);
+
+            return;
+        }
+
+        return error.SymbolNotDefined;
+    };
 
     _ = try self.expectToken(.semicolon);
 
-    const identifier = self.source[self.token_starts[identifier_token]..self.token_ends[identifier_token]];
+    const token_string = self.source[self.token_starts[value_token]..self.token_ends[value_token]];
 
     switch (self.token_tags[value_token])
     {
         .literal_string => {
-            try self.defineSymbol(identifier, 0);
+            const string = token_string[1..token_string.len - 1];
+            const data_offset = self.ir.data.items.len;
+
+            try self.ir.data.appendSlice(self.allocator, string);
+
+            const symbol = try self.ir.addGlobal(.{ 
+                .data = .{
+                    .offset = @intCast(u32, data_offset), 
+                    .size = @intCast(u32, string.len), 
+                },
+            });
+
+            try self.defineSymbol(identifier, @intCast(u32, symbol));
         },
-        else => {},
+        .literal_char => {
+            const char_string = token_string[1..token_string.len - 1];
+
+            const symbol = try self.ir.addGlobal(.{ 
+                .integer = char_string[0] //parse unicode escapes?
+            });
+
+            try self.defineSymbol(identifier, @intCast(u32, symbol));
+        },
+        .literal_integer => {
+            const symbol = try self.ir.addGlobal(.{ 
+                .integer = @bitCast(u64, try std.fmt.parseInt(i64, token_string, 10))
+            });
+
+            try self.defineSymbol(identifier, @intCast(u32, symbol));
+        },
+        .literal_binary => {
+            const symbol = try self.ir.addGlobal(.{ 
+                .integer = @bitCast(u64, try std.fmt.parseInt(i64, token_string[2..token_string.len - 1], 2))
+            });
+
+            try self.defineSymbol(identifier, @intCast(u32, symbol));
+        },
+        .literal_hex => {
+            const symbol = try self.ir.addGlobal(.{ 
+                .integer = @bitCast(u64, try std.fmt.parseInt(i64, token_string[2..token_string.len - 1], 16))
+            });
+
+            try self.defineSymbol(identifier, @intCast(u32, symbol));
+        },
+        else => unreachable,
     }
     
     std.log.info("\nparseVar\n", .{});
@@ -249,11 +322,6 @@ pub fn parseProcedure(self: *@This()) !void
 
     _ = try self.expectToken(.right_brace);
 
-    if (self.scope_patches.count() > 0)
-    {
-        return error.PatchesNotResolved;
-    }
-
     self.popScope();
 
     std.log.info("\nparseProcedure\n", .{});
@@ -269,7 +337,13 @@ pub fn parseBlock(self: *@This()) !void
 
         const label = self.source[self.token_starts[label_token.?]..self.token_ends[label_token.?]];
 
-        try self.defineSymbol(label, 0);
+        const symbol = self.ir.symbol_table.items.len;
+
+        try self.ir.symbol_table.append(self.ir.allocator, .{
+            .basic_block_index = @intCast(u32, self.ir.instructions.items.len)
+        });
+
+        try self.defineSymbol(label, @intCast(u32, symbol));
     }
 
     if (self.eatToken(.left_brace) != null)
@@ -300,23 +374,23 @@ pub fn parseInstruction(self: *@This()) !void
     if (self.eatToken(.semicolon) != null) {
         _ = try self.ir.addInstruction(
             Tokenizer.Token.getOpcode(self.source[self.token_starts[opcode_token]..self.token_ends[opcode_token]]) orelse unreachable, 
-            undefined
+            .{ .empty, .empty, .empty },
         );
 
         return;
     }
 
-    var operands: [4]IR.InstructionStatement.Operand = undefined;
+    var operands: [3]IR.InstructionStatement.Operand = .{ .empty, .empty, .empty };
     var operand_index: usize = 0;
 
     while (true)
     {
-        const operand_token = self.parseIntegerLiteral() catch 
+        const operand_token = (self.parseIntegerLiteral() catch 
         self.eatToken(.argument_register) orelse 
         self.eatToken(.context_register) orelse 
         self.eatToken(.identifier) orelse
         self.parseBuiltinFunction() catch
-            break;
+            break).?;
 
         switch (self.token_tags[operand_token])
         {
@@ -359,7 +433,9 @@ pub fn parseInstruction(self: *@This()) !void
                     break :block 0;
                 };
 
-                _ = symbol;
+                operands[operand_index] = .{
+                    .symbol = symbol
+                };
             },
             else => unreachable,
         }
@@ -375,26 +451,46 @@ pub fn parseInstruction(self: *@This()) !void
 
     _ = try self.ir.addInstruction(
         Tokenizer.Token.getOpcode(self.source[self.token_starts[opcode_token]..self.token_ends[opcode_token]]) orelse unreachable, 
-        undefined
+        operands
     );
 }
 
-pub fn parseBuiltinFunction(self: *@This()) !Node.Index
+pub fn parseBuiltinFunction(self: *@This()) !?u32
 {
     _ = self.eatToken(.dollar);
 
-    _ = try self.expectToken(.identifier);
+    const identifier_token = try self.expectToken(.identifier);
     _ = try self.expectToken(.left_paren);
 
     //should be an expression
-
-    _ = try self.expectToken(.identifier);
+    const identifier_param_token = try self.expectToken(.identifier);
 
     _ = try self.expectToken(.right_paren);
 
+    const identifier = self.source[self.token_starts[identifier_token]..self.token_ends[identifier_token]];
+
+    var result: ?u32 = null;
+
+    //very hardcody...
+    if (std.mem.eql(u8, identifier, "sizeof"))
+    {
+        const symbol_name = self.source[self.token_starts[identifier_param_token]..self.token_ends[identifier_param_token]];
+        const symbol = try self.getSymbol(symbol_name);
+
+        const symbol_value = self.ir.symbol_table.items[symbol];
+
+        switch (symbol_value)
+        {
+            .data => |data| {
+                result = data.size;  
+            },
+            else => unreachable,
+        }
+    }
+
     std.log.info("\nparseBuiltinFunction\n", .{});
 
-    return 0; //return the "primary" token
+    return result;
 }
 
 pub fn parseIntegerLiteral(self: *@This()) !u32 

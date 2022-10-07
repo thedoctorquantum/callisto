@@ -62,13 +62,7 @@ fn run() !void
         defer parser.tokens.deinit(parser.allocator);
         defer parser.errors.deinit(parser.allocator);
 
-        const ir = parser.parse() catch |e| {
-
-            if (true)
-            {
-                return e;
-            }
-
+        const ir = parser.parse() catch {
             for (parser.errors.items) |error_union|
             {
                 switch (error_union)
@@ -133,20 +127,65 @@ fn run() !void
             return;
         };
 
-        {
-            var i: u32 = 0;
-
-            while (i < ir.instructions.items.len)
-            {
-                const instruction = ir.instructions.items[i];
-
-                std.log.info("{s}", .{ @tagName(instruction.operation) });
-
-                i = instruction.next;
-            }
-        }
+        _ = try std.io.getStdErr().write("\n");
 
         std.log.info("basic_syntax.zasm parsed successfully", .{});
+
+        //print ir
+        {
+            {
+                var i: u32 = 0;
+
+                _ = try std.io.getStdErr().write("\nIR Statements: \n"); 
+
+                while (i < ir.instructions.items.len)
+                {
+                    const instruction = ir.instructions.items[i];
+
+                    try std.fmt.format(std.io.getStdErr().writer(), "{:>8}:   {s} ", .{ i, @tagName(instruction.operation) });
+
+                    for (instruction.operands) |operand|
+                    {
+                        switch (operand)
+                        {
+                            .empty => {},
+                            .register => |register| {
+                                try std.fmt.format(std.io.getStdErr().writer(), "r{}, ", .{ register });
+                            },
+                            .immediate => |immediate| {
+                                try std.fmt.format(std.io.getStdErr().writer(), "{}, ", .{ immediate });
+                            },
+                            .symbol => |symbol| {
+                                try std.fmt.format(std.io.getStdErr().writer(), "$G{}, ", .{ symbol });
+                            },
+                        }
+                    }
+
+                    _ = try std.io.getStdErr().write("\n");
+
+                    if (instruction.next) |next|
+                    {
+                        i = next;
+                    }
+                }
+            }
+
+            _ = try std.io.getStdErr().write("\nIR Globals: \n"); 
+
+            for (ir.symbol_table.items) |value, i|
+            {
+                try std.fmt.format(std.io.getStdErr().writer(), "   %G{}: ", .{ i });
+
+                switch (value)
+                {
+                    .basic_block_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "{}", .{ index }), 
+                    .data => |data| try std.fmt.format(std.io.getStdErr().writer(), "{s}", .{ ir.data.items[data.offset..data.offset + data.size] }), 
+                    .integer => |integer| try std.fmt.format(std.io.getStdErr().writer(), "{}", .{ integer }), 
+                }
+
+                _ = try std.io.getStdErr().write("\n");
+            }
+        }
 
         return;
     }

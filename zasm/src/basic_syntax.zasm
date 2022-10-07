@@ -1,20 +1,18 @@
 
+//std os functions
 var message = "hello, world!";
+var message_len = $sizeof(message); /* there will eventually be a $sizeof() builtin */
+
 var other_message = "bye, world!";
-
-/*
-
-Called by the virtual machine
-
-*/
+var other_message_len = $sizeof(other_message);
 
 //entrypoint procedure
 export proc main {
     nullop;
 entry: 
     move a0, message;
-    move a1, 10;
-    call 0;
+    move a1, message_len;
+    call main;
 
     clear c0;
 
@@ -29,7 +27,6 @@ entry:
         write8 c3, 0x00;
 
         jump end;
-
     }
 
     loop_begin: {
@@ -39,19 +36,26 @@ entry:
 
     loop_end: {}
 
+alias_to_end: {}
+lol: {}
 end:
     return;
 }
 
 /* print function */
 proc print {
+    jumpif a0, very_end;
+
     ecall 0;
 
     {
+        jumpif a1, very_end;
+
         ecall 0;
         ecall 1;
         ecall 2;
     }
 
+very_end:
     return;
 }
