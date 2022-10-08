@@ -5,6 +5,8 @@ pub const Assembler = @import("Assembler.zig");
 pub const Tokenizer = @import("Tokenizer.zig");
 pub const Parser = @import("Parser.zig");
 pub const Ast = @import("Ast.zig");
+pub const IR = @import("IR.zig");
+pub const CodeGenerator = @import("CodeGenerator.zig");
 
 pub usingnamespace if (@import("root") == @This()) struct {
     pub const main = run;
@@ -52,12 +54,14 @@ fn run() !void
             .extra_data = .{},
             .ir = .{
                 .allocator = allocator,
-                .instructions = .{},
+                .statements = .{},
                 .symbol_table = .{},
                 .data = .{},
+                .entry_points = .{},
             },
             .scopes = .{},
             .scope_patches = .{},
+            .basic_block_patches = .{},
         };
         defer parser.tokens.deinit(parser.allocator);
         defer parser.errors.deinit(parser.allocator);
@@ -138,34 +142,103 @@ fn run() !void
 
                 _ = try std.io.getStdErr().write("\nIR Statements: \n"); 
 
-                while (i < ir.instructions.items.len)
+                while (i < ir.statements.items.len)
                 {
-                    const instruction = ir.instructions.items[i];
+                    const statement = ir.statements.items[i];
 
-                    try std.fmt.format(std.io.getStdErr().writer(), "{:>8}:   {s} ", .{ i, @tagName(instruction.operation) });
-
-                    for (instruction.operands) |operand|
+                    switch (statement)
                     {
-                        switch (operand)
-                        {
-                            .empty => {},
-                            .register => |register| {
-                                try std.fmt.format(std.io.getStdErr().writer(), "r{}, ", .{ register });
-                            },
-                            .immediate => |immediate| {
-                                try std.fmt.format(std.io.getStdErr().writer(), "{}, ", .{ immediate });
-                            },
-                            .symbol => |symbol| {
-                                try std.fmt.format(std.io.getStdErr().writer(), "$G{}, ", .{ symbol });
-                            },
-                        }
-                    }
+                        .procedure_begin => {
+                            std.debug.print("\nprocedure_begin:\n", .{});
 
-                    _ = try std.io.getStdErr().write("\n");
+                            i += 1;
+                        },
+                        .procedure_end => {
+                            std.debug.print("procedure_end;\n", .{});
 
-                    if (instruction.next) |next|
-                    {
-                        i = next;
+                            i += 1;
+                        },
+                        .entry_block_begin => {
+                            std.debug.print("\n   entry_block_begin:\n", .{});
+
+                            i += 1;
+                        },
+                        .entry_block_end => |entry_block_end| {
+                            std.debug.print("   entry_block_end;", .{});
+
+                            if (entry_block_end.next) |next|
+                            {
+                                i = next;
+
+                                std.debug.print(" next -> {} ", .{ next });
+                            }
+                            else i += 1;
+
+                            if (entry_block_end.cond_next) |cond_next|
+                            {
+                                std.debug.print("else {} ", .{ cond_next });
+                            }
+
+                            std.debug.print("\n", .{});
+                        },
+                        .basic_block_begin => {
+                            std.debug.print("\n   basic_block_begin:\n", .{});
+
+                            i += 1;
+                        },
+                        .basic_block_end => |basic_block_end| {
+                            std.debug.print("   basic_block_end;", .{});
+
+                            if (basic_block_end.next) |next|
+                            {
+                                i = next;
+
+                                // std.log.info("THREADED A JUMP", .{});
+                                std.debug.print(" next -> {} ", .{ next });
+                            }
+                            else i += 1;
+
+                            if (basic_block_end.cond_next) |cond_next|
+                            {
+                                std.debug.print("else {} ", .{ cond_next });
+                            }
+
+                            std.debug.print("\n", .{});
+                        },
+                        .exit_block_begin => {
+                            std.debug.print("\n   exit_block_begin:\n", .{});
+
+                            i += 1;
+                        },
+                        .exit_block_end => {
+                            std.debug.print("   exit_block_end;\n", .{});
+
+                            i += 1;
+                        },
+                        .instruction => |instruction| {
+                            try std.fmt.format(std.io.getStdErr().writer(), "{:>8}:   {s} ", .{ i, @tagName(instruction.operation) });
+
+                            for (instruction.operands) |operand|
+                            {
+                                switch (operand)
+                                {
+                                    .empty => {},
+                                    .register => |register| {
+                                        try std.fmt.format(std.io.getStdErr().writer(), "r{}, ", .{ register });
+                                    },
+                                    .immediate => |immediate| {
+                                        try std.fmt.format(std.io.getStdErr().writer(), "{}, ", .{ immediate });
+                                    },
+                                    .symbol => |symbol| {
+                                        try std.fmt.format(std.io.getStdErr().writer(), "$G{}, ", .{ symbol });
+                                    },
+                                }
+                            }
+
+                            _ = try std.io.getStdErr().write("\n");
+
+                            i += 1;
+                        },
                     }
                 }
             }
@@ -178,7 +251,8 @@ fn run() !void
 
                 switch (value)
                 {
-                    .basic_block_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "{}", .{ index }), 
+                    .basic_block_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "block stmt: {}", .{ index }), 
+                    .procedure_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "proc stmt: {}", .{ index }), 
                     .data => |data| try std.fmt.format(std.io.getStdErr().writer(), "{s}", .{ ir.data.items[data.offset..data.offset + data.size] }), 
                     .integer => |integer| try std.fmt.format(std.io.getStdErr().writer(), "{}", .{ integer }), 
                 }
@@ -186,6 +260,10 @@ fn run() !void
                 _ = try std.io.getStdErr().write("\n");
             }
         }
+
+        const module = try CodeGenerator.generate(allocator, ir);
+
+        _ = module;
 
         return;
     }
