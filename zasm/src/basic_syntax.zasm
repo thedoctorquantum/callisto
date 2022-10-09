@@ -8,37 +8,41 @@ var other_message_len = $sizeof(other_message);
 //entrypoint procedure
 export proc main {
 entry: 
-    move a0, message;
-    move a1, message_len;
+    a0 = move message;
+    a1 = move message_len;
     call print;
 
-    clear c0;
-
+    c0 = clear;
+    
     label: 
-        bnot c0, c0;
-    jumpif c0, entry;
+        c1 = iadd c0, 1;
+        c2 = eql c1, 100; 
+    jumpif c2, entry;
 
-    jump loop_begin;
+    //jump dead;
 
-    {
-        iadd c0, 10, c1;
-        isub c1, 3, c2;
-        imul c2, 4, c3;
+    //dead code
+    dead: {
+        c1 = iadd 10, c0;
+        c2 = isub c1, 3;
+        c3 = imul c2, 4;
         write8 c3, 0x00;
     }
 
     loop_begin: {
-        neql c0, 100, c1;
+        c1 = neql c0, 100;
+        c0 = iadd c0, 1;
         jumpif c1, loop_begin;
     }
+
+    a7 = move 10;
+    a6 = move 0xa3;
+    a5 = move 0xb4;
 
     return;
 
     //eventually should be eliminated by the optimizer
 maybe_exit:    
-    unreachable;
-    iadd c0, 1, c1;
-    isub c0, c1, c2;
     unreachable;
 }
 
@@ -55,28 +59,5 @@ proc print {
     }
 
 very_end:
-    return;
-}
-
-proc if_test {
-    neql a0, 0, c0; //null test on a0
-    jumpif c0, else_if; //if (c0 == null) {...} else {...}
-
-    if: {
-        return;
-    }
-    else_if: {
-        read8 a0, c0;
-        iadd c0, 1, c1;
-        move a7, c1;
-        jump end_if;
-    }
-    end_if: {
-        unreachable;
-    }
-
-    //unreachable code
-    iadd a0, 1, a1;
-    isub a1, 1, a2;
     return;
 }

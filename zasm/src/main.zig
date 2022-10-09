@@ -138,67 +138,45 @@ fn run() !void
 
         //print ir
         {
-            for (ir.procedures.items) |procedure, procedure_index|
+            var statement_iter = ir.constReachableIterator();
+
+            while (statement_iter.next()) |statement|
             {
-                std.log.info("procedure {}:", .{ procedure_index });
-
-                var block_index: u32 = procedure.entry;
-
-                while (block_index < ir.basic_blocks.items.len) 
+                switch (statement.*)
                 {
-                    const basic_block = ir.basic_blocks.items[block_index];
-
-                    std.debug.print("basic_block: {}", .{ block_index });
-
-                    if (basic_block.next) |next|
-                    {
-                        std.debug.print(" next -> {}", .{ next });
-
-                        if (basic_block.cond_next) |cond_next|
+                    .instruction => |instruction| 
+                    {   
+                        if (instruction.write_operand != .empty)
                         {
-                            std.debug.print(", cond_next -> {}", .{ cond_next });
+                            try std.fmt.format(std.io.getStdErr().writer(), "{:>8}: %{s} = {s} ", .{ 
+                                statement_iter.statement_index, 
+                                @tagName(instruction.write_operand.register),
+                                @tagName(instruction.operation) 
+                            });
                         }
-                    }
-
-                    std.debug.print("\n", .{});
-
-                    for (ir.statements.items[basic_block.statement_offset..basic_block.statement_offset + basic_block.statement_count]) |statement, i|
-                    {
-                        switch (statement)
+                        else 
                         {
-                            .instruction => |instruction| 
+                            try std.fmt.format(std.io.getStdErr().writer(), "{:>8}:   {s} ", .{ statement_iter.statement_index, @tagName(instruction.operation) });
+                        }
+
+                        for (instruction.read_operands) |operand|
+                        {
+                            switch (operand)
                             {
-                                try std.fmt.format(std.io.getStdErr().writer(), "{:>8}:   {s} ", .{ i, @tagName(instruction.operation) });
-
-                                for (instruction.operands) |operand|
-                                {
-                                    switch (operand)
-                                    {
-                                        .empty => {},
-                                        .register => |register| {
-                                            try std.fmt.format(std.io.getStdErr().writer(), "{s}, ", .{ @tagName(register) });
-                                        },
-                                        .immediate => |immediate| {
-                                            try std.fmt.format(std.io.getStdErr().writer(), "{}, ", .{ immediate });
-                                        },
-                                        .symbol => |symbol| {
-                                            try std.fmt.format(std.io.getStdErr().writer(), "$G{}, ", .{ symbol });
-                                        },
-                                    }
-                                }
-
-                                _ = try std.io.getStdErr().write("\n");
+                                .empty => {},
+                                .register => |register| {
+                                    try std.fmt.format(std.io.getStdErr().writer(), "%{}, ", .{ register });
+                                },
+                                .immediate => |immediate| {
+                                    try std.fmt.format(std.io.getStdErr().writer(), "{}, ", .{ immediate });
+                                },
+                                .symbol => |symbol| {
+                                    try std.fmt.format(std.io.getStdErr().writer(), "$G{}, ", .{ symbol });
+                                },
                             }
                         }
-                    }
 
-                    if (basic_block.next) |next|
-                    {
-                        block_index = next;
-                    }
-                    else 
-                    {
-                        break;
+                        _ = try std.io.getStdErr().write("\n");
                     }
                 }
             }

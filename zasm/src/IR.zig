@@ -1,5 +1,6 @@
 const std = @import("std");
 const zyte = @import("zyte");
+const IR = @This();
 
 pub fn isBlockTerminatorOperation(operation: Statement.Instruction.Operation) bool
 {
@@ -37,7 +38,8 @@ pub const Statement = union(enum)
     pub const Instruction = struct
     {
         operation: Operation,
-        operands: [3]Operand,
+        write_operand: Operand,
+        read_operands: [2]Operand,
 
         ///Not the same as an opcode,
         ///this is describes a pseudo operation
@@ -131,7 +133,7 @@ pub const Procedure = struct
     entry: BasicBlockIndex,
 };
 
-pub const BasicBlockIndex = u32;
+pub const BasicBlockIndex = BasicBlock.Index;
 
 pub const BasicBlock = struct
 {
@@ -139,6 +141,8 @@ pub const BasicBlock = struct
     statement_count: u32,
     next: ?u31,
     cond_next: ?u31,
+
+    pub const Index = u32;
 };
 
 allocator: std.mem.Allocator,
@@ -148,6 +152,60 @@ basic_blocks: std.ArrayListUnmanaged(BasicBlock) = .{},
 statements: std.ArrayListUnmanaged(Statement) = .{},
 symbol_table: std.ArrayListUnmanaged(SymbolValue) = .{},
 data: std.ArrayListUnmanaged(u8) = .{},
+
+pub const ConstReachableIterator = struct 
+{
+    ir: *const IR,
+    procedure_index: u32 = 0,
+    basic_block_index: u32 = 0,
+    statement_index: u32 = 0,
+
+    pub fn next(self: *@This()) ?*const Statement
+    {
+        while (self.basic_block_index < self.ir.basic_blocks.items.len)
+        {
+            const basic_block = self.ir.basic_blocks.items[self.basic_block_index];
+
+            var statement: ?*Statement = null;
+
+            while (self.statement_index < basic_block.statement_count)
+            {
+                statement = &self.ir.statements.items[basic_block.statement_offset + self.statement_index];
+
+                self.statement_index += 1;
+            }
+
+            if (basic_block.next) |next_index|
+            {
+                self.basic_block_index = next_index;
+            }
+            else 
+            {
+                self.procedure_index += 1;
+
+                if (self.procedure_index < self.ir.procedures.items.len)
+                {
+                    self.basic_block_index = self.ir.procedures.items[self.procedure_index].entry;
+                    self.statement_index = 0;
+
+                    return statement;
+                }
+
+                break;
+            }
+        }
+
+        return null;
+    }
+};
+
+pub fn constReachableIterator(self: *const @This()) ConstReachableIterator
+{
+    return ConstReachableIterator
+    {
+        .ir = self,
+    };
+}
 
 pub fn beginProcedure(self: *@This()) !void
 {
@@ -175,7 +233,12 @@ pub fn beginBasicBlock(self: *@This()) !void
     });
 }
 
-pub fn addInstruction(self: *@This(), operation: Statement.Instruction.Operation, operands: [3]Statement.Instruction.Operand) !void 
+pub fn addInstruction(
+    self: *@This(), 
+    operation: Statement.Instruction.Operation, 
+    write_operand: Statement.Instruction.Operand, 
+    read_operands: [2]Statement.Instruction.Operand
+) !void 
 {
     if (self.procedures.items.len == 0)
     {
@@ -192,7 +255,8 @@ pub fn addInstruction(self: *@This(), operation: Statement.Instruction.Operation
     _ = try self.addStatement(.{
         .instruction = .{
             .operation = operation,
-            .operands = operands,
+            .write_operand = write_operand,
+            .read_operands = read_operands,
         }
     });
 
@@ -204,7 +268,7 @@ pub fn addInstruction(self: *@This(), operation: Statement.Instruction.Operation
         switch (operation)
         {
             .jump => {
-                switch (operands[0])
+                switch (read_operands[0])
                 {
                     .symbol => |symbol_index| {
                         const symbol_value = self.symbol_table.items[symbol_index];
@@ -221,7 +285,7 @@ pub fn addInstruction(self: *@This(), operation: Statement.Instruction.Operation
                 }
             },
             .jumpif => {
-                switch (operands[1])
+                switch (read_operands[1])
                 {
                     .symbol => |symbol_index| {
                         const symbol_value = self.symbol_table.items[symbol_index];

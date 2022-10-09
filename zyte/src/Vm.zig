@@ -109,8 +109,7 @@ pub const InstructionHeader = packed struct(u16)
 //There are 4 operand registers available to instructions
 //ro0: readonly_0; (64 bits) (register or immediate)
 //ro1: readonly_1; (64 bits) (register or immediate)
-//rw0: readwrite_0; (64 bits) (register)
-//rw1: readwrite_1; (64 bits) (register)
+//rw0: writeonly_0; (64 bits) (register)
 pub const OperandPack = packed struct(u16)
 {
     read_operand: Register = .c0, //readonly register 1
@@ -175,9 +174,6 @@ pub fn execute(module: Loader.ModuleInstance) ExecuteError!void
         var read_operand1: u64 = undefined;
 
         var write_operand0: *u64 = undefined;
-        var write_operand1: *u64 = undefined;
-
-        _ = write_operand1;
 
         switch (instruction_header.operand_layout)
         {

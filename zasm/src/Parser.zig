@@ -187,7 +187,7 @@ fn defineSymbol(self: *@This(), string: []const u8, value: u32) !void
         if ((self.scopes.items.len - 1 <= patch.scope_level and !patch.scope_closed) or 
             (self.scopes.items.len - 1 < patch.scope_level and patch.scope_closed))
         {
-            self.ir.statements.items[patch.instruction_index].instruction.operands[patch.operand_index] = .{
+            self.ir.statements.items[patch.instruction_index].instruction.read_operands[patch.operand_index] = .{
                 .symbol = value
             };
 
@@ -398,6 +398,13 @@ pub fn parseBlock(self: *@This()) !void
 
 pub fn parseInstruction(self: *@This()) !void
 {
+    const write_register = self.eatToken(.context_register) orelse self.eatToken(.argument_register);
+
+    if (write_register != null)
+    {
+        _ = try self.expectToken(.equals);
+    }
+
     const opcode_token = try self.expectToken(.opcode);
 
     const opcode = Tokenizer.Token.getOperation(self.source[self.token_starts[opcode_token]..self.token_ends[opcode_token]]) orelse unreachable;
@@ -407,8 +414,28 @@ pub fn parseInstruction(self: *@This()) !void
 
     _ = basic_block;
 
-    var operand_index: usize = 0;
-    var operands: [3]IR.Statement.Instruction.Operand = .{ .empty, .empty, .empty };
+    var write_operand: IR.Statement.Instruction.Operand = .empty;
+
+    if (write_register) |register_token|
+    {
+        switch (self.token_tags[register_token])
+        {
+            .argument_register => {
+                write_operand = .{
+                    .register = Tokenizer.Token.getArgumentRegister(self.source[self.token_starts[register_token]..self.token_ends[register_token]]) orelse unreachable,
+                };
+            },
+            .context_register => {
+                write_operand = .{
+                    .register = Tokenizer.Token.getContextRegister(self.source[self.token_starts[register_token]..self.token_ends[register_token]]) orelse unreachable
+                };
+            },
+            else => unreachable,
+        }
+    }
+
+    var read_operand_index: usize = 0;
+    var read_operands: [2]IR.Statement.Instruction.Operand = .{ .empty, .empty };
 
     if (self.eatToken(.semicolon) == null)
     {
@@ -424,32 +451,32 @@ pub fn parseInstruction(self: *@This()) !void
             switch (self.token_tags[operand_token])
             {
                 .literal_integer => {
-                    operands[operand_index] = .{ 
+                    read_operands[read_operand_index] = .{ 
                         .immediate = @bitCast(u64, try std.fmt.parseInt(i64, self.source[self.token_starts[operand_token]..self.token_ends[operand_token]], 10))
                     };
                 },
                 .literal_binary => {
-                    operands[operand_index] = .{ 
+                    read_operands[read_operand_index] = .{ 
                         .immediate = @bitCast(u64, try std.fmt.parseInt(i64, self.source[self.token_starts[operand_token] + 2..self.token_ends[operand_token]], 2))
                     };
                 },
                 .literal_hex => {
-                    operands[operand_index] = .{ 
+                    read_operands[read_operand_index] = .{ 
                         .immediate = @bitCast(u64, try std.fmt.parseInt(i64, self.source[self.token_starts[operand_token] + 2..self.token_ends[operand_token]], 16))
                     };
                 },
                 .literal_char => {
-                    operands[operand_index] = .{ 
+                    read_operands[read_operand_index] = .{ 
                         .immediate = self.token_starts[operand_token]
                     };
                 },
                 .argument_register => {
-                    operands[operand_index] = .{
+                    read_operands[read_operand_index] = .{
                         .register = Tokenizer.Token.getArgumentRegister(self.source[self.token_starts[operand_token]..self.token_ends[operand_token]]) orelse unreachable,
                     };
                 },
                 .context_register => {
-                    operands[operand_index] = .{
+                    read_operands[read_operand_index] = .{
                         .register = Tokenizer.Token.getContextRegister(self.source[self.token_starts[operand_token]..self.token_ends[operand_token]]) orelse unreachable
                     };
                 },
@@ -457,7 +484,7 @@ pub fn parseInstruction(self: *@This()) !void
                     const identifier = self.source[self.token_starts[operand_token]..self.token_ends[operand_token]];
                     const symbol = self.getSymbol(identifier) catch block: 
                     {
-                        try self.definePatch(identifier, @intCast(u32, self.ir.basic_blocks.items.len), @intCast(u32, operand_index));
+                        try self.definePatch(identifier, @intCast(u32, self.ir.basic_blocks.items.len), @intCast(u32, read_operand_index));
 
                         if (IR.isBlockTerminatorOperation(opcode))
                         {
@@ -472,7 +499,7 @@ pub fn parseInstruction(self: *@This()) !void
 
                     if (symbol != null)
                     {
-                        operands[operand_index] = .{
+                        read_operands[read_operand_index] = .{
                             .symbol = symbol.?
                         };
                     }
@@ -480,7 +507,7 @@ pub fn parseInstruction(self: *@This()) !void
                 else => unreachable,
             }
 
-            operand_index += 1;
+            read_operand_index += 1;
 
             if (self.eatToken(.comma) == null)
             {
@@ -494,8 +521,9 @@ pub fn parseInstruction(self: *@This()) !void
     std.log.info("\nparseInstruction\n", .{});
 
     _ = try self.ir.addInstruction(
-        opcode, 
-        operands,
+        opcode,
+        write_operand, 
+        read_operands,
     );
 }
 

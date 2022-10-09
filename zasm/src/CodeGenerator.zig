@@ -5,7 +5,8 @@ const IR = @import("IR.zig");
 pub const Instruction = struct 
 {
     opcode: zyte.Vm.OpCode,
-    operands: [3]Operand,
+    write_operand: Operand,
+    read_operands: [2]Operand,
 
     pub const Operand = union(enum)
     {
@@ -18,7 +19,7 @@ pub const Instruction = struct
 
 pub const Procedure = struct 
 {
-    ir_statement: u32,
+    index: u32,
 };
 
 ///Maps instruction_indicies into byte offsets in the instruction stream
@@ -39,7 +40,7 @@ pub fn selectInstruction(
     _ = instructions;
     _ = instruction_statement_index;
 
-    var instruction: Instruction = .{ .opcode = .nullop, .operands = .{ .empty, .empty, .empty } };
+    var instruction: Instruction = .{ .opcode = .nullop, .write_operand = .empty, .read_operands = .{ .empty, .empty } };
 
     switch (instruction_statement.operation)
     {
@@ -75,7 +76,7 @@ pub fn selectInstruction(
         .jump => instruction.opcode = .@"jump",
         .jumpif => instruction.opcode = .@"jumpif",
         .call => {
-            switch (instruction_statement.operands[0])
+            switch (instruction_statement.read_operands[0])
             {
                 .symbol => |symbol_index| {
                     const symbol = ir.symbol_table.items[symbol_index];
@@ -98,17 +99,24 @@ pub fn selectInstruction(
         .@"return" => instruction.opcode = .@"return",
     }
 
-    for (instruction_statement.operands) |operand, i|
+    switch (instruction_statement.write_operand)
+    {
+        .register => {
+            instruction.write_operand = .{ .register = @intToEnum(zyte.Vm.Register, @enumToInt(instruction_statement.write_operand.register)) };
+        },
+        else => {},
+    }
+
+    for (instruction_statement.read_operands) |operand, i|
     {
         switch (operand)
         {
             .empty => {},
             .register => |register| {
-                //May need to do proper register selection/allocation if these diverge
-                instruction.operands[i] = .{ .register = @intToEnum(zyte.Vm.Register, @enumToInt(register)) };
+                instruction.read_operands[i] = .{ .register = @intToEnum(zyte.Vm.Register, @enumToInt(register)) };
             },
             .immediate => |immediate| {
-                instruction.operands[i] = .{ .immediate = immediate };
+                instruction.read_operands[i] = .{ .immediate = immediate };
             },
             .symbol => |symbol| {
                 const symbol_value = ir.symbol_table.items[symbol];
@@ -116,7 +124,7 @@ pub fn selectInstruction(
                 switch (symbol_value)
                 {
                     .basic_block_index => |basic_block| {
-                        instruction.operands[i] = .{ .instruction_index = basic_block };
+                        instruction.read_operands[i] = .{ .instruction_index = basic_block };
 
                         // var statement_index = instruction_statement_index;
 
@@ -136,12 +144,12 @@ pub fn selectInstruction(
                         // }
                     },
                     .procedure_index => |procedure_index| {
-                        instruction.operands[i] = .{ .instruction_index = procedure_index };
+                        instruction.read_operands[i] = .{ .instruction_index = procedure_index };
                     },
                     .imported_procedure_index => unreachable,
                     .data => {},
                     .integer => |integer| {
-                        instruction.operands[i] = .{ .immediate = integer };
+                        instruction.read_operands[i] = .{ .immediate = integer };
                     },
                 }
             },
@@ -181,7 +189,7 @@ pub fn generateProcedure(
                         switch (instruction.operation)
                         {
                             .call => {
-                                switch (instruction.operands[0])
+                                switch (instruction.read_operands[0])
                                 {
                                     .symbol => |symbol| {
                                         const procedure_symbol = ir.symbol_table.items[symbol];
@@ -189,7 +197,7 @@ pub fn generateProcedure(
                                         var already_generated: bool = block: {
                                             for (procedure_queue.items) |procedure|
                                             {
-                                                if (procedure.ir_statement == procedure_symbol.procedure_index)
+                                                if (procedure.index == procedure_symbol.procedure_index)
                                                 {
                                                     break: block true;
                                                 }
@@ -201,7 +209,7 @@ pub fn generateProcedure(
                                         if (!already_generated)
                                         {
                                             try procedure_queue.append(allocator, .{
-                                                .ir_statement = procedure_symbol.procedure_index,
+                                                .index = procedure_symbol.procedure_index,
                                             });
                                         }
                                     },
@@ -218,7 +226,7 @@ pub fn generateProcedure(
                         {
                             var j: usize = 0;
 
-                            for (zyte_instruction.operands) |operand|
+                            for (zyte_instruction.read_operands) |operand|
                             {
                                 switch (operand)
                                 {
@@ -234,7 +242,7 @@ pub fn generateProcedure(
                                     },
                                 }
 
-                                if (j < zyte_instruction.operands.len - 1 and operand != .empty)
+                                if (j < zyte_instruction.read_operands.len - 1 and operand != .empty)
                                 {
                                     std.debug.print(", ", .{});
                                 }
@@ -266,7 +274,7 @@ pub fn generateProcedure(
 
     for (procedure_queue.items[procedure_queue_start..]) |procedure|
     {
-        try generateProcedure(allocator, ir, instructions, procedure.ir_statement, procedure_queue);
+        try generateProcedure(allocator, ir, instructions, procedure.index, procedure_queue);
     }
 }
 
@@ -284,7 +292,45 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
     {
         std.log.info("Entry point index: {}", .{ entry_point });
 
-        try generateProcedure(allocator, ir, &instructions, entry_point, &procedure_queue);
+        const entry_point_block = ir.procedures.items[entry_point].entry;
+
+        try generateProcedure(allocator, ir, &instructions, entry_point_block, &procedure_queue);
+    }
+
+    std.log.info("CodeGenIR: \n", .{});
+
+    for (instructions.items) |instruction, current_instruction_index|
+    {
+        switch (instruction.write_operand)
+        {
+            .empty => std.debug.print("{:0>4}: {s}", .{ current_instruction_index, @tagName(instruction.opcode) }),
+            .register => |register| std.debug.print("{:0>4}: %{s} = {s}", .{ current_instruction_index, @tagName(register), @tagName(instruction.opcode) }),
+            else => unreachable,
+        }
+
+        for (instruction.read_operands) |operand, i|
+        {
+            if (i != 0 and i != instruction.read_operands.len and operand != .empty)
+            {
+                std.debug.print(",", .{});
+            }
+
+            switch (operand) 
+            {
+                .empty => {},
+                .register => |register| {
+                    std.debug.print(" %{s}", .{ @tagName(register) });
+                },
+                .immediate => |immediate| {
+                    std.debug.print(" {}", .{ immediate });
+                },
+                .instruction_index => |instruction_index| {
+                    std.debug.print(" &[i{}]", .{ instruction_index });
+                },
+            }
+        }
+
+        std.debug.print(";\n", .{});
     }
 
     var module = zyte.Module {
