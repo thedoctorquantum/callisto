@@ -39,7 +39,8 @@ scope_patches: std.StringHashMapUnmanaged(struct
 }),
 basic_block_patches: std.StringHashMapUnmanaged(struct 
 {
-    block_end: u32,
+    basic_block: u32,
+    is_next: bool,
 }),
 
 pub const Scope = struct 
@@ -198,25 +199,20 @@ fn defineSymbol(self: *@This(), string: []const u8, value: u32) !void
 
     if (self.basic_block_patches.get(string)) |patch|
     {
-        const block_end_statement = &self.ir.statements.items[patch.block_end];
+        const basic_block = &self.ir.basic_blocks.items[patch.basic_block];
 
         const symbol_value = self.ir.symbol_table.items[value]; 
 
-        switch (block_end_statement.*)
+        if (patch.is_next)
         {
-            .entry_block_end => {
-                const entry_block_end = &block_end_statement.entry_block_end;
-
-                entry_block_end.next = @intCast(u31, symbol_value.basic_block_index);
-            },
-            .basic_block_end => {
-                const basic_block_end = &block_end_statement.basic_block_end;
-
-                basic_block_end.next = @intCast(u31, symbol_value.basic_block_index);
-            },
-            .exit_block_end => {},
-            else => unreachable,
+            basic_block.next = @intCast(u31, symbol_value.basic_block_index);
         }
+        else 
+        {
+            basic_block.cond_next = @intCast(u31, symbol_value.basic_block_index);
+        }
+
+        _ = self.basic_block_patches.remove(string);
     }
 
     try self.scopes.items[self.scopes.items.len - 1].locals.put(self.allocator, string, value);
@@ -331,16 +327,16 @@ pub fn parseProcedure(self: *@This()) !void
 
     if (is_export)
     {
-        try self.ir.entry_points.append(self.allocator, @intCast(u32, self.ir.statements.items.len));
+        try self.ir.entry_points.append(self.allocator, @intCast(u32, self.ir.procedures.items.len));
     }
 
     const symbol = try self.ir.addGlobal(.{
-        .procedure_index = @intCast(u32, self.ir.statements.items.len)
+        .procedure_index = @intCast(u32, self.ir.procedures.items.len)
     });
 
     try self.defineSymbol(identifier, symbol);
 
-    _ = try self.ir.beginProcedure();
+    try self.ir.beginProcedure();
 
     _ = try self.expectToken(.left_brace);
 
@@ -352,8 +348,6 @@ pub fn parseProcedure(self: *@This()) !void
     }
 
     _ = try self.expectToken(.right_brace);
-
-    _ = try self.ir.endProcedure();
 
     self.popScope();
 
@@ -373,21 +367,12 @@ pub fn parseBlock(self: *@This()) !void
         const symbol = self.ir.symbol_table.items.len;
 
         try self.ir.symbol_table.append(self.ir.allocator, .{
-            .basic_block_index = @intCast(u32, self.ir.statements.items.len)
+            .basic_block_index = @intCast(u32, self.ir.basic_blocks.items.len)
         });
 
         try self.defineSymbol(label, @intCast(u32, symbol));
 
-        switch (self.ir.getLastStatement().*)
-        {
-            .procedure_begin => {
-                _ = try self.ir.beginEntryBlock();
-            },
-            .instruction => {
-                _ = try self.ir.beginBasicBlock();
-            },
-            else => {},
-        }
+        try self.ir.beginBasicBlock();
     }
 
     if (self.eatToken(.left_brace) != null)
@@ -407,69 +392,20 @@ pub fn parseBlock(self: *@This()) !void
     }
     else 
     {
-        _ = try self.parseInstruction();
+        try self.parseInstruction();
     }
 }
 
-pub fn parseInstruction(self: *@This()) !IR.StatementIndex
+pub fn parseInstruction(self: *@This()) !void
 {
-    var success: bool = true;
-    errdefer success = false;
-
     const opcode_token = try self.expectToken(.opcode);
 
-    const opcode = Tokenizer.Token.getOpcode(self.source[self.token_starts[opcode_token]..self.token_ends[opcode_token]]) orelse unreachable;
+    const opcode = Tokenizer.Token.getOperation(self.source[self.token_starts[opcode_token]..self.token_ends[opcode_token]]) orelse unreachable;
 
-    const last_statement = self.ir.getLastStatement().*;
+    const basic_block_index = self.ir.basic_blocks.items.len - 1;
+    const basic_block = &self.ir.basic_blocks.items[basic_block_index];
 
-    if (IR.isProcedureTerminatorOperation(opcode))
-    {
-        const block_begin_statement = self.ir.getLastStatementOfTagAny(&.{
-            .entry_block_begin,
-            .basic_block_begin,
-            .exit_block_begin,
-        });
-
-        switch (block_begin_statement.?.*)
-        {
-            .entry_block_begin => {
-                // _ = try self.ir.endEntryBlock(null, null);
-                _ = try self.ir.beginExitBlock();
-            },
-            .basic_block_begin => {
-                if (last_statement != .basic_block_end)
-                {                
-                    _ = try self.ir.endBasicBlock(null, null);
-                }
-
-                _ = try self.ir.beginExitBlock();
-            },
-            .exit_block_begin => {
-                _ = try self.ir.endExitBlock();
-                _ = try self.ir.beginExitBlock();
-            },
-            else => unreachable,
-        }
-    }
-    else 
-    {
-        switch (last_statement)
-        {
-            .procedure_begin => {
-                _ = try self.ir.beginEntryBlock();
-            },
-            .procedure_end => unreachable,
-            .entry_block_begin => {},
-            .basic_block_begin => {},
-            .exit_block_begin => {},
-            .entry_block_end,
-            .basic_block_end,
-            .exit_block_end => {
-                _ = try self.ir.beginBasicBlock();
-            },
-            .instruction => {},
-        }
-    }
+    _ = basic_block;
 
     var operand_index: usize = 0;
     var operands: [3]IR.Statement.Instruction.Operand = .{ .empty, .empty, .empty };
@@ -509,33 +445,30 @@ pub fn parseInstruction(self: *@This()) !IR.StatementIndex
                 },
                 .argument_register => {
                     operands[operand_index] = .{
-                        .register = 8 + try std.fmt.parseUnsigned(u4, self.source[self.token_starts[operand_token] + 1..self.token_ends[operand_token]], 10)
+                        .register = Tokenizer.Token.getArgumentRegister(self.source[self.token_starts[operand_token]..self.token_ends[operand_token]]) orelse unreachable,
                     };
                 },
                 .context_register => {
                     operands[operand_index] = .{
-                        .register = try std.fmt.parseUnsigned(u4, self.source[self.token_starts[operand_token] + 1..self.token_ends[operand_token]], 10)
+                        .register = Tokenizer.Token.getContextRegister(self.source[self.token_starts[operand_token]..self.token_ends[operand_token]]) orelse unreachable
                     };
                 },
                 .identifier => {
                     const identifier = self.source[self.token_starts[operand_token]..self.token_ends[operand_token]];
                     const symbol = self.getSymbol(identifier) catch block: 
                     {
-                        try self.definePatch(identifier, @intCast(u32, self.ir.statements.items.len), @intCast(u32, operand_index));
+                        try self.definePatch(identifier, @intCast(u32, self.ir.basic_blocks.items.len), @intCast(u32, operand_index));
+
+                        if (IR.isBlockTerminatorOperation(opcode))
+                        {
+                            try self.basic_block_patches.put(self.allocator, identifier, .{
+                                .basic_block = @intCast(u32, basic_block_index),
+                                .is_next = opcode == .jump,
+                            });
+                        }
 
                         break :block null;
                     };
-
-                    if (IR.isBlockTerminatorOperation(opcode) and symbol == null and operand_index == 0)
-                    {
-                        const block_end_index = @intCast(u32, self.ir.statements.items.len) + 1;
-
-                        try self.basic_block_patches.put(self.allocator, identifier, .{
-                            .block_end = block_end_index,
-                        });
-
-                        std.log.info("block_end_index: {}", .{ block_end_index });
-                    }
 
                     if (symbol != null)
                     {
@@ -560,122 +493,10 @@ pub fn parseInstruction(self: *@This()) !IR.StatementIndex
 
     std.log.info("\nparseInstruction\n", .{});
 
-    const instruction_statement = try self.ir.addInstruction(
+    _ = try self.ir.addInstruction(
         opcode, 
         operands,
     );
-
-    if (IR.isProcedureTerminatorStatement(self.ir.getStatement(instruction_statement).*))
-    {
-        const block_begin_statement = self.ir.getLastStatementOfTagAny(&.{
-            .entry_block_begin,
-            .basic_block_begin,
-            .exit_block_begin,
-        });
-
-        switch (block_begin_statement.?.*)
-        {
-            .entry_block_begin => {
-                _ = try self.ir.endExitBlock();
-            },
-            .basic_block_begin => {
-                _ = try self.ir.endExitBlock();
-
-                block_begin_statement.?.* = .exit_block_begin;
-            },
-            .exit_block_begin => _ = try self.ir.endExitBlock(),
-            else => unreachable,
-        }
-    }
-    else if (IR.isBlockTerminatorStatement(self.ir.getStatement(instruction_statement).*))
-    {
-        const block_begin_statement = self.ir.getLastStatementOfTagAny(&.{
-            .entry_block_begin,
-            .basic_block_begin,
-            .exit_block_begin,
-        });
-
-        var next_block: ?u31 = @intCast(u31, self.ir.statements.items.len + 1);
-        var cond_next_block: ?u31 = null;
-
-        switch (self.ir.getStatement(instruction_statement).*)
-        {
-            .instruction => |terminator_instruction| {
-                switch (terminator_instruction.operation) 
-                {
-                    .jump => {
-                        switch (terminator_instruction.operands[0])
-                        {
-                            .symbol => |symbol_index| {
-                                const symbol_value = self.ir.symbol_table.items[symbol_index];
-
-                                switch (symbol_value)
-                                {
-                                    .basic_block_index => |basic_block_index| {
-                                        next_block = @intCast(u31, basic_block_index);
-                                    },
-                                    else => {  
-                                        std.log.info("symbol_index {}", .{ symbol_index });
-                                        std.log.info("symbol {}", .{ symbol_value });
-                                        unreachable; 
-                                    },
-                                }
-                            },
-                            else => {}, 
-                        }
-                    },
-                    .jumpif => {
-                        switch (terminator_instruction.operands[1])
-                        {
-                            .symbol => |symbol_index| {
-                                const symbol_value = self.ir.symbol_table.items[symbol_index];
-
-                                switch (symbol_value)
-                                {
-                                    .basic_block_index => |basic_block_index| {
-                                        cond_next_block = @intCast(u31, basic_block_index);
-                                    },
-                                    else => {},
-                                }
-                            },
-                            else => {}, 
-                        }
-                    },
-                    else => unreachable,
-                }
-            },
-            else => unreachable,
-        }
-
-        switch (block_begin_statement.?.*)
-        {
-            .entry_block_begin => _ = try self.ir.endEntryBlock(next_block, cond_next_block),
-            .basic_block_begin => _ = try self.ir.endBasicBlock(next_block, cond_next_block),
-            .exit_block_begin => _ = try self.ir.endExitBlock(),
-            else => unreachable,
-        }
-    }
-    else 
-    {
-        const block_begin_statement = self.ir.getLastStatementOfTagAny(&.{
-            .entry_block_begin,
-            .basic_block_begin,
-            .exit_block_begin,
-        });
-
-        var next_block: ?u31 = @intCast(u31, self.ir.statements.items.len + 1);
-        var cond_next_block: ?u31 = null;
-
-        switch (block_begin_statement.?.*)
-        {
-            .entry_block_begin => _ = try self.ir.endEntryBlock(next_block, cond_next_block),
-            .basic_block_begin => _ = try self.ir.endBasicBlock(next_block, cond_next_block),
-            .exit_block_begin => _ = try self.ir.endExitBlock(),
-            else => unreachable,
-        }
-    }
-
-    return instruction_statement;
 }
 
 pub fn parseBuiltinFunction(self: *@This()) !?u32

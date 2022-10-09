@@ -5,26 +5,156 @@ const IR = @import("IR.zig");
 pub const Instruction = struct 
 {
     opcode: zyte.Vm.OpCode,
-    operands: []Operand,
+    operands: [3]Operand,
 
     pub const Operand = union(enum)
     {
         empty,
-        register: u4,
+        register: zyte.Vm.Register,
         immediate: u64,
-        symbol: u32,
+        instruction_index: u32,
     };
 };
 
 pub const Procedure = struct 
 {
     ir_statement: u32,
-    entry_point: u32,
 };
+
+///Maps instruction_indicies into byte offsets in the instruction stream
+pub fn mapAddresses() void 
+{
+    unreachable;
+}
+
+///Selects the zyte opcode/operands for the corresponding IR instruction
+///Currently only returns one instruction, but may end up selecting more or less for peephole reduction   
+pub fn selectInstruction(
+    ir: IR, 
+    instructions: []const Instruction, 
+    instruction_statement: IR.Statement.Instruction,
+    instruction_statement_index: IR.StatementIndex
+    ) !Instruction
+{
+    _ = instructions;
+    _ = instruction_statement_index;
+
+    var instruction: Instruction = .{ .opcode = .nullop, .operands = .{ .empty, .empty, .empty } };
+
+    switch (instruction_statement.operation)
+    {
+        .nullop => {},
+        .@"unreachable" => instruction.opcode = .@"unreachable",
+        .@"break" => instruction.opcode = .@"break",
+        .move => instruction.opcode = .@"move",
+        .clear => instruction.opcode = .@"clear",
+        .read8 => instruction.opcode = .@"read8",
+        .read16 => instruction.opcode = .@"read16",
+        .read32 => instruction.opcode = .@"read32",
+        .read64 => instruction.opcode = .@"read64",
+        .write8 => instruction.opcode = .@"write8",
+        .write16 => instruction.opcode = .@"write16",
+        .write32 => instruction.opcode = .@"write32",
+        .write64 => instruction.opcode = .@"write64",
+        .iadd => instruction.opcode = .@"iadd",
+        .isub => instruction.opcode = .@"isub",
+        .imul => instruction.opcode = .@"imul",
+        .idiv => instruction.opcode = .@"idiv",
+        .islt => instruction.opcode = .@"islt",
+        .isgt => instruction.opcode = .@"isgt",
+        .isle => instruction.opcode = .@"isle",
+        .isge => instruction.opcode = .@"isge",
+        .band => instruction.opcode = .@"band",
+        .bor => instruction.opcode = .@"bor",
+        .bnot => instruction.opcode = .@"bnot",
+        .lnot => instruction.opcode = .@"lnot",
+        .push => instruction.opcode = .@"push",
+        .pop => instruction.opcode = .@"pop",
+        .eql => instruction.opcode = .@"eql",
+        .neql => instruction.opcode = .@"neql",
+        .jump => instruction.opcode = .@"jump",
+        .jumpif => instruction.opcode = .@"jumpif",
+        .call => {
+            switch (instruction_statement.operands[0])
+            {
+                .symbol => |symbol_index| {
+                    const symbol = ir.symbol_table.items[symbol_index];
+
+                    switch (symbol)
+                    {
+                        .procedure_index => {
+                            instruction.opcode = .@"call";
+                        },
+                        .imported_procedure_index => {
+                            instruction.opcode = .@"ecall";          
+                        },
+                        else => unreachable,
+                    } 
+                },
+                .register => {},
+                else => {},
+            }
+        },
+        .@"return" => instruction.opcode = .@"return",
+    }
+
+    for (instruction_statement.operands) |operand, i|
+    {
+        switch (operand)
+        {
+            .empty => {},
+            .register => |register| {
+                //May need to do proper register selection/allocation if these diverge
+                instruction.operands[i] = .{ .register = @intToEnum(zyte.Vm.Register, @enumToInt(register)) };
+            },
+            .immediate => |immediate| {
+                instruction.operands[i] = .{ .immediate = immediate };
+            },
+            .symbol => |symbol| {
+                const symbol_value = ir.symbol_table.items[symbol];
+
+                switch (symbol_value)
+                {
+                    .basic_block_index => |basic_block| {
+                        instruction.operands[i] = .{ .instruction_index = basic_block };
+
+                        // var statement_index = instruction_statement_index;
+
+                        // var i: u32 = statement_index;
+
+                        // _ = i;
+
+                        // while (i < ir.statements.items.len)
+                        // {
+                        //     const statement = ir.statements.items[i];
+
+                        //     switch (statement)
+                        //     {
+                        //         .basic_block_begin => {},
+                        //         else => {},
+                        //     }
+                        // }
+                    },
+                    .procedure_index => |procedure_index| {
+                        instruction.operands[i] = .{ .instruction_index = procedure_index };
+                    },
+                    .imported_procedure_index => unreachable,
+                    .data => {},
+                    .integer => |integer| {
+                        instruction.operands[i] = .{ .immediate = integer };
+                    },
+                }
+            },
+        }
+    }
+
+    return instruction;
+}
 
 pub fn generateProcedure(
     allocator: std.mem.Allocator, 
-    ir: IR, instructions: *std.ArrayListUnmanaged(Instruction), 
+    ir: IR, 
+    instructions: *std.ArrayListUnmanaged(Instruction), 
     entry_point: usize,
     procedure_queue: *std.ArrayListUnmanaged(Procedure),
     ) !void
@@ -34,89 +164,102 @@ pub fn generateProcedure(
 
     const procedure_queue_start = procedure_queue.items.len;
 
-    {    
-        var i: usize = entry_point;
+    {
+        var basic_block_index: usize = entry_point;
 
-        while (i < ir.statements.items.len)
+        while (basic_block_index < ir.basic_blocks.items.len)
         {
-            const statement = ir.statements.items[i];
+            const basic_block = ir.basic_blocks.items[basic_block_index];
+            const statements = ir.statements.items[basic_block.statement_offset..basic_block.statement_offset + basic_block.statement_count];
 
-            switch (statement)
+            for (statements) |statement, i|
             {
-                .procedure_begin => {
-                    i += 1;
-                },
-                .procedure_end => {
-                    //we should determine the next procedures in the call graph
-                    //this will leave non-entrypoint procedures ungenerated
-                    break;
-                },
-                .entry_block_begin => {
-                    i += 1;
-                },
-                .entry_block_end => |entry_block_end| {
-                    if (entry_block_end.next) |next|
+                switch (statement)
+                {
+                    .instruction => |instruction|
                     {
-                        i = next;
-                    }
-                    else unreachable; //entry blocks should always point to either an exit or basic block
-                },
-                .basic_block_begin => {
-                    i += 1;
-                },
-                .basic_block_end => |basic_block_end| {
-                    if (basic_block_end.next) |next|
-                    {
-                        i = next;
-                    }
-                    else unreachable; //entry blocks should always point to either an exit or basic block
-                },
-                .exit_block_begin => {
-                    i += 1;
-                },
-                .exit_block_end => {
-                    break;
-                },
-                .instruction => |instruction| {
-                    switch (instruction.operation)
-                    {
-                        .call => {
-                            switch (instruction.operands[0])
-                            {
-                                .symbol => |symbol| {
-                                    const procedure_symbol = ir.symbol_table.items[symbol];
+                        switch (instruction.operation)
+                        {
+                            .call => {
+                                switch (instruction.operands[0])
+                                {
+                                    .symbol => |symbol| {
+                                        const procedure_symbol = ir.symbol_table.items[symbol];
 
-                                    var already_generated: bool = block: {
-                                        for (procedure_queue.items) |procedure|
-                                        {
-                                            if (procedure.ir_statement == procedure_symbol.procedure_index)
+                                        var already_generated: bool = block: {
+                                            for (procedure_queue.items) |procedure|
                                             {
-                                                break: block true;
+                                                if (procedure.ir_statement == procedure_symbol.procedure_index)
+                                                {
+                                                    break: block true;
+                                                }
                                             }
+
+                                            break: block false;
+                                        };
+
+                                        if (!already_generated)
+                                        {
+                                            try procedure_queue.append(allocator, .{
+                                                .ir_statement = procedure_symbol.procedure_index,
+                                            });
                                         }
+                                    },
+                                    else => {},
+                                }
+                            },
+                            else => {},
+                        }
 
-                                        break: block false;
-                                    };
+                        const zyte_instruction = try selectInstruction(ir, instructions.items, instruction, @intCast(u32, i));
 
-                                    if (!already_generated)
-                                    {
-                                        try procedure_queue.append(allocator, .{
-                                            .ir_statement = procedure_symbol.procedure_index,
-                                            .entry_point = 0,
-                                        });
-                                    }
-                                },
-                                else => {},
+                        std.debug.print("{}: {s} ", .{ instructions.items.len, @tagName(zyte_instruction.opcode) });
+
+                        {
+                            var j: usize = 0;
+
+                            for (zyte_instruction.operands) |operand|
+                            {
+                                switch (operand)
+                                {
+                                    .empty => {},
+                                    .register => |register| {
+                                        std.debug.print("{s}", .{ @tagName(register) });
+                                    },
+                                    .immediate => |immediate| {
+                                        std.debug.print("{}", .{ immediate });
+                                    },
+                                    .instruction_index => |instruction_index| {
+                                        std.debug.print("{}", .{ instruction_index });
+                                    },
+                                }
+
+                                if (j < zyte_instruction.operands.len - 1 and operand != .empty)
+                                {
+                                    std.debug.print(", ", .{});
+                                }
+
+                                switch (operand) {
+                                    .empty => break,
+                                    else => j += 1,
+                                }
                             }
-                        },
-                        else => {},
+                        }
+
+                        std.debug.print("\n", .{});
+
+                        try instructions.append(allocator, zyte_instruction);
                     }
+                }
+            }
 
-                    //we must do instruction selection first, then emit CodeGenIR instruction(s)
-                    std.log.info("Generated bytecode instruction {s}", .{ @tagName(instruction.operation) });
-
-                    i += 1;
-                },
+            if (basic_block.next) |next|
+            {
+                basic_block_index = next;
+            }
+            else 
+            {
+                break;
             }
         }
     }
@@ -136,6 +279,7 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
     var procedure_queue = std.ArrayListUnmanaged(Procedure) {};
     defer procedure_queue.deinit(allocator);
 
+    //Should really traverse a DAG (Directed Acyclic Graph) of procedures
     for (ir.entry_points.items) |entry_point|
     {
         std.log.info("Entry point index: {}", .{ entry_point });

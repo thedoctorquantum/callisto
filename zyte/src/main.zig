@@ -34,7 +34,7 @@ fn run() !void
         \\<str>
     );
         
-    const clap_result = try clap.parse(clap.Help, &params, clap.parsers.default, .{});
+    var clap_result = try clap.parse(clap.Help, &params, clap.parsers.default, .{});
     defer clap_result.deinit();
     
     if (clap_result.args.help)
@@ -48,6 +48,9 @@ fn run() !void
     }
 
     const out_module = clap_result.args.out_module orelse "out.zt";
+
+    //Currently the assembler is not compiling
+    clap_result.args.source.len = 0;
 
     for (clap_result.args.source) |source_file| 
     {

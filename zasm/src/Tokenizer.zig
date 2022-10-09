@@ -1,7 +1,7 @@
 const Tokenizer = @This();
 
 const std = @import("std");
-const Vm = @import("zyte").Vm;
+const IR = @import("IR.zig");
 
 source: []const u8,
 index: usize = 0,
@@ -141,7 +141,7 @@ pub fn next(self: *Tokenizer) ?Token
                     else => {
                         const string = self.source[result.start..self.index];
 
-                        if (Token.isOpcode(string))
+                        if (Token.isOperation(string))
                         {
                             result.tag = .opcode;
                         }
@@ -324,60 +324,66 @@ pub const Token = struct
         };
     }
 
-    pub fn getOpcode(string: []const u8) ?Vm.OpCode
+    pub fn getOperation(string: []const u8) ?IR.Statement.Instruction.Operation
     {
-        inline for (comptime std.meta.fieldNames(Vm.OpCode)) |name|
+        inline for (comptime std.meta.fieldNames(IR.Statement.Instruction.Operation)) |name|
         {
             if (std.mem.eql(u8, string, name))
             {
-                return std.enums.nameCast(Vm.OpCode, name);
+                return std.enums.nameCast(IR.Statement.Instruction.Operation, name);
             }
         }
 
         return null;
     }
 
-    pub fn isOpcode(string: []const u8) bool
+    pub fn isOperation(string: []const u8) bool
     {
-        inline for (comptime std.meta.fieldNames(Vm.OpCode)) |name|
+        return getOperation(string) != null;
+    }
+
+    pub fn getContextRegister(string: []const u8) ?IR.Statement.Instruction.Register
+    {
+        inline for (comptime std.meta.fieldNames(IR.Statement.Instruction.Register)) |name|
         {
             if (std.mem.eql(u8, string, name))
             {
-                return true;
+                return switch (std.enums.nameCast(IR.Statement.Instruction.Register, name))
+                {
+                    .c0, .c1, .c2, .c3, .c4, .c5, .c6, .c7 => std.enums.nameCast(IR.Statement.Instruction.Register, name),
+                    else => null,
+                };
             }
         }
 
-        return false;
+        return null;
     }
 
     pub fn isContextRegister(string: []const u8) bool 
     {
-        comptime var i = 0;
+        return getContextRegister(string) != null;
+    }
 
-        inline while (i < 8) : (i += 1)
+    pub fn getArgumentRegister(string: []const u8) ?IR.Statement.Instruction.Register
+    {
+        inline for (comptime std.meta.fieldNames(IR.Statement.Instruction.Register)) |name|
         {
-            if (std.mem.eql(u8, string, "c" ++ std.fmt.comptimePrint("{}", .{ i })))
+            if (std.mem.eql(u8, string, name))
             {
-                return true;
-            }       
-        } 
+                return switch (std.enums.nameCast(IR.Statement.Instruction.Register, name))
+                {
+                    .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7 => std.enums.nameCast(IR.Statement.Instruction.Register, name),
+                    else => null,
+                };
+            }
+        }
 
-        return false;
+        return null;
     }
 
     pub fn isArgumentRegister(string: []const u8) bool
     {
-        comptime var i = 0;
-
-        inline while (i < 8) : (i += 1)
-        {
-            if (std.mem.eql(u8, string, "a" ++ std.fmt.comptimePrint("{}", .{ i })))
-            {
-                return true;
-            }       
-        } 
-
-        return false;   
+        return getArgumentRegister(string) != null;
     }
 
     pub fn isKeyword(string: []const u8, comptime tag: Tag) bool

@@ -35,6 +35,10 @@ entry:
     return;
 
     //eventually should be eliminated by the optimizer
+maybe_exit:    
+    unreachable;
+    iadd c0, 1, c1;
+    isub c0, c1, c2;
     unreachable;
 }
 
@@ -42,43 +46,15 @@ entry:
 proc print {
     jumpif a0, very_end;
 
-    ecall 0;
+    nullop;
 
     {
         jumpif a1, very_end;
 
-        ecall 0;
-        ecall 1;
-        ecall 2;
-
+        nullop;
     }
 
 very_end:
-    return;
-}
-
-proc basic_proc 
-{
-    iadd a0, 1, c1;
-    imul c1, 4, c2;
-    eql c2, 6, c3;
-    jumpif c3, exit0;
-
-else: //basic_block
-    move a0, message;
-    move a1, message_len;
-    call print;
-    eql a1, 5, a2;
-    jumpif a2, exit1;
-
-endif: //basic_block
-    move a0, 1;
-    iadd a0, 1, a1;
-
-exit0: //exit_block
-    return;
-exit1: 
-    move a7, 0x1;
     return;
 }
 
