@@ -138,45 +138,57 @@ fn run() !void
 
         //print ir
         {
-            var statement_iter = ir.constReachableIterator();
+            std.debug.print("\nIR Statements:\n", .{});
 
-            while (statement_iter.next()) |statement|
+            var procedures = ir.constReachableProcedureIterator();
+
+            while (procedures.next()) |procedure|
             {
-                switch (statement.*)
-                {
-                    .instruction => |instruction| 
-                    {   
-                        if (instruction.write_operand != .empty)
-                        {
-                            try std.fmt.format(std.io.getStdErr().writer(), "{:>8}: %{s} = {s} ", .{ 
-                                statement_iter.statement_index, 
-                                @tagName(instruction.write_operand.register),
-                                @tagName(instruction.operation) 
-                            });
-                        }
-                        else 
-                        {
-                            try std.fmt.format(std.io.getStdErr().writer(), "{:>8}:   {s} ", .{ statement_iter.statement_index, @tagName(instruction.operation) });
-                        }
+                var basic_blocks = ir.constReachableBasicBlockIterator(procedure.*);
 
-                        for (instruction.read_operands) |operand|
+                while (basic_blocks.next()) |basic_block|
+                {
+                    const statements = ir.statements.items[basic_block.statement_offset..basic_block.statement_offset + basic_block.statement_count];
+
+                    for (statements) |statement, statement_index|
+                    {
+                        switch (statement)
                         {
-                            switch (operand)
-                            {
-                                .empty => {},
-                                .register => |register| {
-                                    try std.fmt.format(std.io.getStdErr().writer(), "%{}, ", .{ register });
-                                },
-                                .immediate => |immediate| {
-                                    try std.fmt.format(std.io.getStdErr().writer(), "{}, ", .{ immediate });
-                                },
-                                .symbol => |symbol| {
-                                    try std.fmt.format(std.io.getStdErr().writer(), "$G{}, ", .{ symbol });
-                                },
+                            .instruction => |instruction| 
+                            {   
+                                if (instruction.write_operand != .empty)
+                                {
+                                    try std.fmt.format(std.io.getStdErr().writer(), "   {:0>2}: %{s} = {s} ", .{ 
+                                        statement_index, 
+                                        @tagName(instruction.write_operand.register),
+                                        @tagName(instruction.operation) 
+                                    });
+                                }
+                                else 
+                                {
+                                    try std.fmt.format(std.io.getStdErr().writer(), "   {:0>2}: {s} ", .{ statement_index, @tagName(instruction.operation) });
+                                }
+
+                                for (instruction.read_operands) |operand|
+                                {
+                                    switch (operand)
+                                    {
+                                        .empty => {},
+                                        .register => |register| {
+                                            try std.fmt.format(std.io.getStdErr().writer(), "%{s}, ", .{ @tagName(register) });
+                                        },
+                                        .immediate => |immediate| {
+                                            try std.fmt.format(std.io.getStdErr().writer(), "{}, ", .{ immediate });
+                                        },
+                                        .symbol => |symbol| {
+                                            try std.fmt.format(std.io.getStdErr().writer(), "$G{}, ", .{ symbol });
+                                        },
+                                    }
+                                }
+
+                                _ = try std.io.getStdErr().write("\n");
                             }
                         }
-
-                        _ = try std.io.getStdErr().write("\n");
                     }
                 }
             }
@@ -186,12 +198,12 @@ fn run() !void
 
         for (ir.symbol_table.items) |value, i|
         {
-            try std.fmt.format(std.io.getStdErr().writer(), "   %G{}: ", .{ i });
+            try std.fmt.format(std.io.getStdErr().writer(), "   %G{:0>2}: ", .{ i });
 
             switch (value)
             {
-                .basic_block_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "block stmt: {}", .{ index }), 
-                .procedure_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "proc stmt: {}", .{ index }), 
+                .basic_block_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "block: {}", .{ index }), 
+                .procedure_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "proc: {}", .{ index }), 
                 .imported_procedure_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "import proc: {}", .{ index }), 
                 .data => |data| try std.fmt.format(std.io.getStdErr().writer(), "{s}", .{ ir.data.items[data.offset..data.offset + data.size] }), 
                 .integer => |integer| try std.fmt.format(std.io.getStdErr().writer(), "{}", .{ integer }), 

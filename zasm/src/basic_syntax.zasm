@@ -8,26 +8,11 @@ var other_message_len = $sizeof(other_message);
 //entrypoint procedure
 export proc main {
 entry: 
-    a0 = move message;
+    a0 = move 0;
     a1 = move message_len;
     call print;
 
     c0 = clear;
-    
-    label: 
-        c1 = iadd c0, 1;
-        c2 = eql c1, 100; 
-    jumpif c2, entry;
-
-    //jump dead;
-
-    //dead code
-    dead: {
-        c1 = iadd 10, c0;
-        c2 = isub c1, 3;
-        c3 = imul c2, 4;
-        write8 c3, 0x00;
-    }
 
     loop_begin: {
         c1 = neql c0, 100;
@@ -39,25 +24,17 @@ entry:
     a6 = move 0xa3;
     a5 = move 0xb4;
 
+exit:
     return;
-
-    //eventually should be eliminated by the optimizer
-maybe_exit:    
-    unreachable;
 }
 
 /* print function */
 proc print {
-    jumpif a0, very_end;
-
+    jump end;
+    push 10;
     nullop;
-
-    {
-        jumpif a1, very_end;
-
-        nullop;
-    }
-
-very_end:
+    nullop;
+    nullop;
+end:
     return;
 }

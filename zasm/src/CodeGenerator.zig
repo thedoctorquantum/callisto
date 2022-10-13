@@ -22,10 +22,63 @@ pub const Procedure = struct
     index: u32,
 };
 
-///Maps instruction_indicies into byte offsets in the instruction stream
-pub fn mapAddresses() void 
+pub fn sizeInstruction(instruction: Instruction) usize
 {
-    unreachable;
+    var registers_size: usize = 0;
+    var immediate_sizes: [3]usize = .{ 0, 0, 0 };
+    var immediate_count: usize = 0;
+
+    if (instruction.write_operand != .empty)
+    {
+        registers_size = @sizeOf(u16);
+    }
+
+    for (instruction.read_operands) |operand, i|
+    {
+        switch (operand)
+        {
+            .register => registers_size = @maximum(registers_size, @sizeOf(u16)),
+            .immediate => |immediate| {
+                immediate_count += 1;
+
+                if (immediate <= std.math.maxInt(u8))
+                {
+                    immediate_sizes[i + 1] = @sizeOf(u16);
+                }
+                else if (immediate > std.math.maxInt(u8) and immediate <= std.math.maxInt(u16))
+                {
+                    immediate_sizes[i + 1] = @sizeOf(u16);
+                }
+                else if (immediate > std.math.maxInt(u16) and immediate <= std.math.maxInt(u32))
+                {
+                    immediate_sizes[i + 1] = @sizeOf(u32);
+                }
+                else
+                {
+                    immediate_sizes[i + 1] = @sizeOf(u64);
+                }
+            },
+            .instruction_index => {
+                immediate_count += 1;
+                immediate_sizes[i] = @sizeOf(u64);
+            },
+            .empty => {},
+        }
+    }
+
+    var immediate_size: usize = 0;
+
+    for (immediate_sizes) |current_immediate_size|
+    {
+        immediate_size = @maximum(immediate_size, current_immediate_size);
+    }
+
+    return @sizeOf(zyte.Vm.InstructionHeader) + registers_size + (immediate_size * immediate_count);
+}
+
+pub fn encodeInstruction() void
+{
+
 }
 
 ///Selects the zyte opcode/operands for the corresponding IR instruction
@@ -125,26 +178,9 @@ pub fn selectInstruction(
                 {
                     .basic_block_index => |basic_block| {
                         instruction.read_operands[i] = .{ .instruction_index = basic_block };
-
-                        // var statement_index = instruction_statement_index;
-
-                        // var i: u32 = statement_index;
-
-                        // _ = i;
-
-                        // while (i < ir.statements.items.len)
-                        // {
-                        //     const statement = ir.statements.items[i];
-
-                        //     switch (statement)
-                        //     {
-                        //         .basic_block_begin => {},
-                        //         else => {},
-                        //     }
-                        // }
                     },
                     .procedure_index => |procedure_index| {
-                        instruction.read_operands[i] = .{ .instruction_index = procedure_index };
+                        instruction.read_operands[i] = .{ .instruction_index = ir.procedures.items[procedure_index].entry };
                     },
                     .imported_procedure_index => unreachable,
                     .data => {},
@@ -163,118 +199,75 @@ pub fn generateProcedure(
     allocator: std.mem.Allocator, 
     ir: IR, 
     instructions: *std.ArrayListUnmanaged(Instruction), 
-    entry_point: usize,
+    block_instruction_indices: []u32,
+    procedure_index: usize,
     procedure_queue: *std.ArrayListUnmanaged(Procedure),
     ) !void
 {
-    std.debug.print("\n", .{});
-    std.log.info("Procedure: \n", .{});
-
     const procedure_queue_start = procedure_queue.items.len;
 
+    var basic_blocks = ir.constReachableBasicBlockIterator(ir.procedures.items[procedure_index]);
+
+    while (basic_blocks.next()) |basic_block|
     {
-        var basic_block_index: usize = entry_point;
+        const basic_block_index = basic_blocks.index;
 
-        while (basic_block_index < ir.basic_blocks.items.len)
+        const statements = ir.statements.items[basic_block.statement_offset..basic_block.statement_offset + basic_block.statement_count];
+
+        std.log.info("basic_block_index: {}", .{ basic_block_index });
+
+        block_instruction_indices[basic_block_index] = @intCast(u32, instructions.items.len);
+
+        for (statements) |statement, i|
         {
-            const basic_block = ir.basic_blocks.items[basic_block_index];
-            const statements = ir.statements.items[basic_block.statement_offset..basic_block.statement_offset + basic_block.statement_count];
-
-            for (statements) |statement, i|
+            switch (statement)
             {
-                switch (statement)
+                .instruction => |instruction|
                 {
-                    .instruction => |instruction|
+                    switch (instruction.operation)
                     {
-                        switch (instruction.operation)
-                        {
-                            .call => {
-                                switch (instruction.read_operands[0])
-                                {
-                                    .symbol => |symbol| {
-                                        const procedure_symbol = ir.symbol_table.items[symbol];
-
-                                        var already_generated: bool = block: {
-                                            for (procedure_queue.items) |procedure|
-                                            {
-                                                if (procedure.index == procedure_symbol.procedure_index)
-                                                {
-                                                    break: block true;
-                                                }
-                                            }
-
-                                            break: block false;
-                                        };
-
-                                        if (!already_generated)
-                                        {
-                                            try procedure_queue.append(allocator, .{
-                                                .index = procedure_symbol.procedure_index,
-                                            });
-                                        }
-                                    },
-                                    else => {},
-                                }
-                            },
-                            else => {},
-                        }
-
-                        const zyte_instruction = try selectInstruction(ir, instructions.items, instruction, @intCast(u32, i));
-
-                        std.debug.print("{}: {s} ", .{ instructions.items.len, @tagName(zyte_instruction.opcode) });
-
-                        {
-                            var j: usize = 0;
-
-                            for (zyte_instruction.read_operands) |operand|
+                        .call => {
+                            switch (instruction.read_operands[0])
                             {
-                                switch (operand)
-                                {
-                                    .empty => {},
-                                    .register => |register| {
-                                        std.debug.print("{s}", .{ @tagName(register) });
-                                    },
-                                    .immediate => |immediate| {
-                                        std.debug.print("{}", .{ immediate });
-                                    },
-                                    .instruction_index => |instruction_index| {
-                                        std.debug.print("{}", .{ instruction_index });
-                                    },
-                                }
+                                .symbol => |symbol| {
+                                    const procedure_symbol = ir.symbol_table.items[symbol];
 
-                                if (j < zyte_instruction.read_operands.len - 1 and operand != .empty)
-                                {
-                                    std.debug.print(", ", .{});
-                                }
+                                    var already_generated: bool = block: {
+                                        for (procedure_queue.items) |procedure|
+                                        {
+                                            if (procedure.index == procedure_symbol.procedure_index)
+                                            {
+                                                break: block true;
+                                            }
+                                        }
 
-                                switch (operand) {
-                                    .empty => break,
-                                    else => j += 1,
-                                }
+                                        break: block false;
+                                    };
+
+                                    if (!already_generated)
+                                    {
+                                        try procedure_queue.append(allocator, .{
+                                            .index = procedure_symbol.procedure_index,
+                                        });
+                                    }
+                                },
+                                else => {},
                             }
-                        }
-
-                        std.debug.print("\n", .{});
-
-                        try instructions.append(allocator, zyte_instruction);
+                        },
+                        else => {},
                     }
-                }
-            }
 
-            if (basic_block.next) |next|
-            {
-                basic_block_index = next;
-            }
-            else 
-            {
-                break;
+                    const zyte_instruction = try selectInstruction(ir, instructions.items, instruction, @intCast(u32, i));
+
+                    try instructions.append(allocator, zyte_instruction);
+                }
             }
         }
     }
 
     for (procedure_queue.items[procedure_queue_start..]) |procedure|
     {
-        try generateProcedure(allocator, ir, instructions, procedure.index, procedure_queue);
+        try generateProcedure(allocator, ir, instructions, block_instruction_indices, procedure.index, procedure_queue);
     }
 }
 
@@ -283,29 +276,55 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
     var instructions = std.ArrayListUnmanaged(Instruction) {};
     defer instructions.deinit(allocator);
 
-    //queue of procedures to be generated
     var procedure_queue = std.ArrayListUnmanaged(Procedure) {};
     defer procedure_queue.deinit(allocator);
+
+    const block_instruction_indices = try allocator.alloc(u32, ir.basic_blocks.items.len);
+    defer allocator.free(block_instruction_indices);
+
+    std.mem.set(u32, block_instruction_indices, 69);
 
     //Should really traverse a DAG (Directed Acyclic Graph) of procedures
     for (ir.entry_points.items) |entry_point|
     {
-        std.log.info("Entry point index: {}", .{ entry_point });
-
-        const entry_point_block = ir.procedures.items[entry_point].entry;
-
-        try generateProcedure(allocator, ir, &instructions, entry_point_block, &procedure_queue);
+        try generateProcedure(allocator, ir, &instructions, block_instruction_indices, entry_point, &procedure_queue);
     }
 
-    std.log.info("CodeGenIR: \n", .{});
+    //Resolve block indices to instruction indices
+
+    std.log.info("block_instruction_indices: {any}", .{ block_instruction_indices });
+
+    for (instructions.items) |*instruction|
+    {
+        for (instruction.read_operands) |*operand|
+        {
+            switch (operand.*)
+            {
+                .instruction_index => |block_index| {
+                    operand.instruction_index = block_instruction_indices[block_index];
+                },
+                else => {},
+            }
+        }
+    }
+
+    std.debug.print("\nCodeGenIR: \n\n", .{});
 
     for (instructions.items) |instruction, current_instruction_index|
     {
+        std.debug.print("{:0>4}: {s}", .{ current_instruction_index, @tagName(instruction.opcode) });
+
         switch (instruction.write_operand)
         {
-            .empty => std.debug.print("{:0>4}: {s}", .{ current_instruction_index, @tagName(instruction.opcode) }),
-            .register => |register| std.debug.print("{:0>4}: %{s} = {s}", .{ current_instruction_index, @tagName(register), @tagName(instruction.opcode) }),
-            else => unreachable,
+            .register => |register| {
+                std.debug.print(" %{s}", .{ @tagName(register) });
+
+                if (instruction.read_operands.len != 0)
+                {
+                    std.debug.print(",", .{});
+                }
+            },
+            else => {},
         }
 
         for (instruction.read_operands) |operand, i|
@@ -326,6 +345,71 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
                 },
                 .instruction_index => |instruction_index| {
                     std.debug.print(" &[i{}]", .{ instruction_index });
+                },
+            }
+        }
+
+        std.debug.print(";\n", .{});
+    }
+    
+    const instruction_addresses = try allocator.alloc(u32, instructions.items.len);
+    defer allocator.free(instruction_addresses);
+
+    {
+        var current_address: usize = 0;
+
+        for (instructions.items) |instruction, i|
+        {
+            const size = sizeInstruction(instruction);
+
+            instruction_addresses[i] = @intCast(u32, current_address); 
+
+            current_address += size;
+        }
+    }
+
+    for (instruction_addresses) |address, i|
+    {
+        std.log.info("{}: {}", .{ i, address });
+    }
+
+    std.debug.print("\nAddress mapped CodeGenIR: \n\n", .{});
+
+    for (instructions.items) |instruction, current_instruction_index|
+    {
+        std.debug.print("{:0>4}: {s}", .{ instruction_addresses[current_instruction_index], @tagName(instruction.opcode) });
+
+        switch (instruction.write_operand)
+        {
+            .register => |register| {
+                std.debug.print(" %{s}", .{ @tagName(register) });
+
+                if (instruction.read_operands.len != 0)
+                {
+                    std.debug.print(",", .{});
+                }
+            },
+            else => {},
+        }
+
+        for (instruction.read_operands) |operand, i|
+        {
+            if (i != 0 and i != instruction.read_operands.len and operand != .empty)
+            {
+                std.debug.print(",", .{});
+            }
+
+            switch (operand) 
+            {
+                .empty => {},
+                .register => |register| {
+                    std.debug.print(" %{s}", .{ @tagName(register) });
+                },
+                .immediate => |immediate| {
+                    std.debug.print(" {}", .{ immediate });
+                },
+                .instruction_index => |instruction_index| {
+                    std.debug.print(" (0x{})", .{ instruction_addresses[instruction_index] });
                 },
             }
         }

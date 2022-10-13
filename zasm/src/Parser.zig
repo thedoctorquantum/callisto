@@ -34,7 +34,7 @@ scope_patches: std.StringHashMapUnmanaged(struct
     token_referenced: u32,
     scope_level: u32,
     scope_closed: bool,
-    instruction_index: u32,
+    statement_index: u32,
     operand_index: u32,
 }),
 basic_block_patches: std.StringHashMapUnmanaged(struct 
@@ -165,7 +165,7 @@ fn popScope(self: *@This()) void
 
 fn getSymbol(self: *@This(), string: []const u8) !u32
 {
-    return self.scopes.items[self.scopes.items.len - 1].locals.get(string) orelse self.getSymbolAtScope(string, self.scopes.items.len - 2);
+    return self.getSymbolAtScope(string, self.scopes.items.len - 1);
 }
 
 fn getSymbolAtScope(self: *@This(), string: []const u8, scope: usize) !u32
@@ -180,18 +180,18 @@ fn getSymbolAtScope(self: *@This(), string: []const u8, scope: usize) !u32
     };
 }
 
-fn defineSymbol(self: *@This(), string: []const u8, value: u32) !void
+fn defineSymbol(self: *@This(), string: []const u8, symbol: u32) !void
 {
     if (self.scope_patches.get(string)) |patch|
     {
         if ((self.scopes.items.len - 1 <= patch.scope_level and !patch.scope_closed) or 
             (self.scopes.items.len - 1 < patch.scope_level and patch.scope_closed))
         {
-            self.ir.statements.items[patch.instruction_index].instruction.read_operands[patch.operand_index] = .{
-                .symbol = value
+            self.ir.statements.items[patch.statement_index].instruction.read_operands[patch.operand_index] = .{
+                .symbol = symbol
             };
 
-            std.log.info("Patched referenced symbol {s} with value %G{}", .{ string, value });
+            std.log.info("Patched referenced symbol {s} with value %G{}", .{ string, symbol });
 
             _ = self.scope_patches.remove(string);
         }
@@ -201,7 +201,7 @@ fn defineSymbol(self: *@This(), string: []const u8, value: u32) !void
     {
         const basic_block = &self.ir.basic_blocks.items[patch.basic_block];
 
-        const symbol_value = self.ir.symbol_table.items[value]; 
+        const symbol_value = self.ir.symbol_table.items[symbol]; 
 
         if (patch.is_next)
         {
@@ -215,15 +215,15 @@ fn defineSymbol(self: *@This(), string: []const u8, value: u32) !void
         _ = self.basic_block_patches.remove(string);
     }
 
-    try self.scopes.items[self.scopes.items.len - 1].locals.put(self.allocator, string, value);
+    try self.scopes.items[self.scopes.items.len - 1].locals.put(self.allocator, string, symbol);
 }
 
-fn definePatch(self: *@This(), string: []const u8, instruction_index: u32, operand_index: u32) !void 
+fn definePatch(self: *@This(), string: []const u8, statement_index: u32, operand_index: u32) !void 
 {
     try self.scope_patches.put(self.allocator, string, .{
         .token_referenced = self.token_index,
         .scope_level = @intCast(u32, self.scopes.items.len) - 1,
-        .instruction_index = instruction_index,
+        .statement_index = statement_index,
         .operand_index = operand_index,
         .scope_closed = false,
     });
@@ -248,7 +248,7 @@ pub fn parseVar(self: *@This()) !void
                 .integer = result_value
             });
 
-            try self.defineSymbol(identifier, @intCast(u32, symbol));
+            try self.defineSymbol(identifier, symbol);
 
             _ = try self.expectToken(.semicolon);
 
@@ -333,6 +333,8 @@ pub fn parseProcedure(self: *@This()) !void
     const symbol = try self.ir.addGlobal(.{
         .procedure_index = @intCast(u32, self.ir.procedures.items.len)
     });
+
+    std.log.info("Defined proc {s} as G{}", .{ identifier, symbol });
 
     try self.defineSymbol(identifier, symbol);
 
@@ -484,7 +486,7 @@ pub fn parseInstruction(self: *@This()) !void
                     const identifier = self.source[self.token_starts[operand_token]..self.token_ends[operand_token]];
                     const symbol = self.getSymbol(identifier) catch block: 
                     {
-                        try self.definePatch(identifier, @intCast(u32, self.ir.basic_blocks.items.len), @intCast(u32, read_operand_index));
+                        try self.definePatch(identifier, @intCast(u32, self.ir.statements.items.len), @intCast(u32, read_operand_index));
 
                         if (IR.isBlockTerminatorOperation(opcode))
                         {

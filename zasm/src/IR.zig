@@ -153,57 +153,68 @@ statements: std.ArrayListUnmanaged(Statement) = .{},
 symbol_table: std.ArrayListUnmanaged(SymbolValue) = .{},
 data: std.ArrayListUnmanaged(u8) = .{},
 
-pub const ConstReachableIterator = struct 
+pub const ConstReachableProcedureIterator = struct 
 {
     ir: *const IR,
-    procedure_index: u32 = 0,
-    basic_block_index: u32 = 0,
-    statement_index: u32 = 0,
+    index: u32 = 0,
+    entry_point_index: u32 = 0, 
 
-    pub fn next(self: *@This()) ?*const Statement
+    pub fn next(self: *@This()) ?*const Procedure
     {
-        while (self.basic_block_index < self.ir.basic_blocks.items.len)
+        while (self.entry_point_index < self.ir.entry_points.items.len)
         {
-            const basic_block = self.ir.basic_blocks.items[self.basic_block_index];
+            self.index = self.ir.entry_points.items[self.entry_point_index];
+            defer self.entry_point_index += 1;
 
-            var statement: ?*Statement = null;
-
-            while (self.statement_index < basic_block.statement_count)
-            {
-                statement = &self.ir.statements.items[basic_block.statement_offset + self.statement_index];
-
-                self.statement_index += 1;
-            }
-
-            if (basic_block.next) |next_index|
-            {
-                self.basic_block_index = next_index;
-            }
-            else 
-            {
-                self.procedure_index += 1;
-
-                if (self.procedure_index < self.ir.procedures.items.len)
-                {
-                    self.basic_block_index = self.ir.procedures.items[self.procedure_index].entry;
-                    self.statement_index = 0;
-
-                    return statement;
-                }
-
-                break;
-            }
+            return &self.ir.procedures.items[self.index];            
         }
 
         return null;
     }
 };
 
-pub fn constReachableIterator(self: *const @This()) ConstReachableIterator
+pub fn constReachableProcedureIterator(self: *const @This()) ConstReachableProcedureIterator
 {
-    return ConstReachableIterator
+    return ConstReachableProcedureIterator
     {
         .ir = self,
+    };
+}
+
+pub const ConstReachableBasicBlockIterator = struct 
+{
+    ir: *const IR,
+    index: u32,
+    current_index: u32,
+
+    pub fn next(self: *@This()) ?*const BasicBlock 
+    {
+        if (self.current_index < self.ir.basic_blocks.items.len)
+        {
+            const block = &self.ir.basic_blocks.items[self.current_index];
+
+            self.index = self.current_index;
+            self.current_index = block.next orelse
+            {
+                self.current_index = @intCast(u32, self.ir.basic_blocks.items.len);
+
+                return block;
+            };
+
+            return block;
+        }
+
+        return null;
+    }
+};
+
+pub fn constReachableBasicBlockIterator(self: *const @This(), procedure: Procedure) ConstReachableBasicBlockIterator
+{
+    return ConstReachableBasicBlockIterator
+    {
+        .ir = self,
+        .index = procedure.entry,
+        .current_index = procedure.entry,
     };
 }
 
@@ -240,11 +251,6 @@ pub fn addInstruction(
     read_operands: [2]Statement.Instruction.Operand
 ) !void 
 {
-    if (self.procedures.items.len == 0)
-    {
-        try self.beginProcedure();
-    }
-
     const current_block = &self.basic_blocks.items[self.basic_blocks.items.len - 1];
 
     if (current_block.next == null)
