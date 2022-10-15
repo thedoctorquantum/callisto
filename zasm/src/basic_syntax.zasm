@@ -8,8 +8,8 @@ var other_message_len = $sizeof(other_message);
 //entrypoint procedure
 export proc main {
 entry: 
-    a0 = move 0;
-    a1 = move message_len;
+    a0 = move other_message;
+    a1 = move other_message_len;
     call print;
 
     c0 = clear;
@@ -17,6 +17,7 @@ entry:
     loop_begin: {
         c1 = neql c0, 100;
         c0 = iadd c0, 1;
+
         jumpif c1, loop_begin;
     }
 
@@ -24,15 +25,26 @@ entry:
     a6 = move 0xa3;
     a5 = move 0xb4;
 
+    call fmadd;
+
+    a7 = move exit;
+
 exit:
+    return;
+}
+
+//fused multiply add
+proc fmadd {
+    a7 = iadd a0, a1;
+    a7 = imul a7, a2;
+
     return;
 }
 
 /* print function */
 proc print {
     jump end;
-    push 10;
-    nullop;
+    nullop; //dead code
     nullop;
     nullop;
 end:

@@ -120,7 +120,7 @@ pub const SymbolValue = union(enum)
 {
     basic_block_index: u32,
     procedure_index: u32,
-    imported_procedure_index,
+    imported_procedure_index: u32,
     data: struct {
         offset: u32,
         size: u32, 

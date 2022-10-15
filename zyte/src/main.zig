@@ -152,197 +152,198 @@ fn run() !void
                 switch (header.operand_layout)
                 {
                     .none => {},
-                    .register => {
-                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
-                        i += 1;
+                    // .register => {
+                    //     const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                    //     i += 1;
 
-                        try std.fmt.format(stdout, "{s}", .{ @tagName(registers.read_operand) });
-                    },
-                    .register_register => {
-                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
-                        i += 1;
+                    //     try std.fmt.format(stdout, "{s}", .{ @tagName(registers.read_operand) });
+                    // },
+                    // .register_register => {
+                    //     const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                    //     i += 1;
 
-                        try std.fmt.format(stdout, "{s}, {s}", .{ @tagName(registers.read_operand), @tagName(registers.write_operand) });
-                    },
-                    .register_register_register => {
-                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
-                        i += 1;
+                    //     try std.fmt.format(stdout, "{s}, {s}", .{ @tagName(registers.read_operand), @tagName(registers.write_operand) });
+                    // },
+                    // .register_register_register => {
+                    //     const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                    //     i += 1;
 
-                        try std.fmt.format(stdout, "{s}, {s}, {s}", .{ @tagName(registers.read_operand), @tagName(registers.read_operand1), @tagName(registers.write_operand) });
-                    },
-                    .register_immediate => {
-                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
-                        i += 1;
+                    //     try std.fmt.format(stdout, "{s}, {s}, {s}", .{ @tagName(registers.read_operand), @tagName(registers.read_operand1), @tagName(registers.write_operand) });
+                    // },
+                    // .register_immediate => {
+                    //     const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                    //     i += 1;
 
-                        try std.fmt.format(stdout, "{s}, ", .{ @tagName(registers.read_operand) });
+                    //     try std.fmt.format(stdout, "{s}, ", .{ @tagName(registers.read_operand) });
 
-                        switch (header.immediate_size)
-                        {
-                            .@"8" => { 
-                                const immediate = instruction_code_points[i];
-                                i += 1;
+                    //     switch (header.immediate_size)
+                    //     {
+                    //         .@"8" => { 
+                    //             const immediate = instruction_code_points[i];
+                    //             i += 1;
 
-                                try std.fmt.format(stdout, "{x}", .{ immediate });
-                            },
-                            .@"16" => { 
-                                const immediate = instruction_code_points[i];
-                                i += 1;
+                    //             try std.fmt.format(stdout, "{x}", .{ immediate });
+                    //         },
+                    //         .@"16" => { 
+                    //             const immediate = instruction_code_points[i];
+                    //             i += 1;
 
-                                try std.fmt.format(stdout, "{x}", .{ immediate });
-                            },
-                            .@"32" => {
-                                const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
-                                i += 2;
+                    //             try std.fmt.format(stdout, "{x}", .{ immediate });
+                    //         },
+                    //         .@"32" => {
+                    //             const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                    //             i += 2;
 
-                                try std.fmt.format(stdout, "{x}", .{ immediate });
-                            },
-                            .@"64" => {
-                                const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
-                                i += 4;
+                    //             try std.fmt.format(stdout, "{x}", .{ immediate });
+                    //         },
+                    //         .@"64" => {
+                    //             const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+                    //             i += 4;
 
-                                try std.fmt.format(stdout, "{x}", .{ immediate });
-                            },
-                        }
-                    },
-                    .register_immediate_register => {
-                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
-                        i += 1;
+                    //             try std.fmt.format(stdout, "{x}", .{ immediate });
+                    //         },
+                    //     }
+                    // },
+                    // .register_immediate_register => {
+                    //     const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                    //     i += 1;
 
-                        try std.fmt.format(stdout, "{s}, ", .{ @tagName(registers.read_operand) });
+                    //     try std.fmt.format(stdout, "{s}, ", .{ @tagName(registers.read_operand) });
 
-                        switch (header.immediate_size)
-                        {
-                            .@"8" => { 
-                                const immediate = instruction_code_points[i];
-                                i += 1;
+                    //     switch (header.immediate_size)
+                    //     {
+                    //         .@"8" => { 
+                    //             const immediate = instruction_code_points[i];
+                    //             i += 1;
 
-                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                            },
-                            .@"16" => { 
-                                const immediate = instruction_code_points[i];
-                                i += 1;
+                    //             try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //         },
+                    //         .@"16" => { 
+                    //             const immediate = instruction_code_points[i];
+                    //             i += 1;
 
-                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                            },
-                            .@"32" => {
-                                const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
-                                i += 2;
+                    //             try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //         },
+                    //         .@"32" => {
+                    //             const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                    //             i += 2;
 
-                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                            },
-                            .@"64" => {
-                                const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+                    //             try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //         },
+                    //         .@"64" => {
+                    //             const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
 
-                                i += 4;
+                    //             i += 4;
 
-                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                            },
-                        }
+                    //             try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //         },
+                    //     }
 
-                        try std.fmt.format(stdout, "{s}", .{ @tagName(registers.write_operand) });
-                    },
-                    .immediate => {
-                        switch (header.immediate_size)
-                        {
-                            .@"8" => { 
-                                const immediate = instruction_code_points[i];
-                                i += 1;
+                    //     try std.fmt.format(stdout, "{s}", .{ @tagName(registers.write_operand) });
+                    // },
+                    // .immediate => {
+                    //     switch (header.immediate_size)
+                    //     {
+                    //         .@"8" => { 
+                    //             const immediate = instruction_code_points[i];
+                    //             i += 1;
 
-                                try std.fmt.format(stdout, "{x}", .{ immediate });
-                            },
-                            .@"16" => { 
-                                const immediate = instruction_code_points[i];
-                                i += 1;
+                    //             try std.fmt.format(stdout, "{x}", .{ immediate });
+                    //         },
+                    //         .@"16" => { 
+                    //             const immediate = instruction_code_points[i];
+                    //             i += 1;
 
-                                try std.fmt.format(stdout, "{x}", .{ immediate });
-                            },
-                            .@"32" => {
-                                const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
-                                i += 2;
+                    //             try std.fmt.format(stdout, "{x}", .{ immediate });
+                    //         },
+                    //         .@"32" => {
+                    //             const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                    //             i += 2;
 
-                                try std.fmt.format(stdout, "{x}", .{ immediate });
-                            },
-                            .@"64" => {
-                                const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+                    //             try std.fmt.format(stdout, "{x}", .{ immediate });
+                    //         },
+                    //         .@"64" => {
+                    //             const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
 
-                                i += 4;
+                    //             i += 4;
 
-                                try std.fmt.format(stdout, "{x}", .{ immediate });
-                            },
-                        }
-                    },
-                    .immediate_immediate => {
-                        var j: usize = 0;
+                    //             try std.fmt.format(stdout, "{x}", .{ immediate });
+                    //         },
+                    //     }
+                    // },
+                    // .immediate_immediate => {
+                    //     var j: usize = 0;
 
-                        while (j < 2) : (j += 1)
-                        {
-                            switch (header.immediate_size)
-                            {
-                                .@"8" => { 
-                                    const immediate = instruction_code_points[i];
-                                    i += 1;
+                    //     while (j < 2) : (j += 1)
+                    //     {
+                    //         switch (header.immediate_size)
+                    //         {
+                    //             .@"8" => { 
+                    //                 const immediate = instruction_code_points[i];
+                    //                 i += 1;
 
-                                    try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                                },
-                                .@"16" => { 
-                                    const immediate = instruction_code_points[i];
-                                    i += 1;
+                    //                 try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //             },
+                    //             .@"16" => { 
+                    //                 const immediate = instruction_code_points[i];
+                    //                 i += 1;
 
-                                    try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                                },
-                                .@"32" => {
-                                    const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
-                                    i += 2;
+                    //                 try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //             },
+                    //             .@"32" => {
+                    //                 const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                    //                 i += 2;
 
-                                    try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                                },
-                                .@"64" => {
-                                    const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+                    //                 try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //             },
+                    //             .@"64" => {
+                    //                 const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
 
-                                    i += 4;
+                    //                 i += 4;
 
-                                    try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                                },
-                            }
-                        }
-                    },
-                    .immediate_register => {
-                        const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
-                        i += 1;
+                    //                 try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //             },
+                    //         }
+                    //     }
+                    // },
+                    // .immediate_register => {
+                    //     const registers = @bitCast(Vm.OperandPack, instruction_code_points[i]);
+                    //     i += 1;
 
-                        switch (header.immediate_size)
-                        {
-                            .@"8" => { 
-                                const immediate = instruction_code_points[i];
-                                i += 1;
+                    //     switch (header.immediate_size)
+                    //     {
+                    //         .@"8" => { 
+                    //             const immediate = instruction_code_points[i];
+                    //             i += 1;
 
-                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                            },
-                            .@"16" => { 
-                                const immediate = instruction_code_points[i];
-                                i += 1;
+                    //             try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //         },
+                    //         .@"16" => { 
+                    //             const immediate = instruction_code_points[i];
+                    //             i += 1;
 
-                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                            },
-                            .@"32" => {
-                                const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
-                                i += 2;
+                    //             try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //         },
+                    //         .@"32" => {
+                    //             const immediate = @ptrCast(*align(1) const u32, &instruction_code_points[i]).*;
+                    //             i += 2;
 
-                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                            },
-                            .@"64" => {
-                                const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
+                    //             try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //         },
+                    //         .@"64" => {
+                    //             const immediate = @ptrCast(*align(1) const u64, &instruction_code_points[i]).*;
 
-                                i += 4;
+                    //             i += 4;
 
-                                try std.fmt.format(stdout, "{x}, ", .{ immediate });
-                            },
-                        }
+                    //             try std.fmt.format(stdout, "{x}, ", .{ immediate });
+                    //         },
+                    //     }
 
-                        try std.fmt.format(stdout, "{s}", .{ @tagName(registers.write_operand) });
-                    },
-                    .immediate_register_register => unreachable,
-                    _ => unreachable,
+                    //     try std.fmt.format(stdout, "{s}", .{ @tagName(registers.write_operand) });
+                    // },
+                    // .immediate_register_register => unreachable,
+                    // _ => unreachable,
+                    else => {},
                 }
 
                 try std.fmt.format(stdout, "\n", .{});

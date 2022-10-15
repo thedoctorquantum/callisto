@@ -14,7 +14,15 @@ pub const Instruction = struct
         register: zyte.Vm.Register,
         immediate: u64,
         instruction_index: u32,
+        data_point_index: u32,
     };
+};
+
+pub const DataPoint = struct 
+{
+    alignment: u32,
+    size: u32,
+    offset: u32,
 };
 
 pub const Procedure = struct 
@@ -62,6 +70,10 @@ pub fn sizeInstruction(instruction: Instruction) usize
                 immediate_count += 1;
                 immediate_sizes[i] = @sizeOf(u64);
             },
+            .data_point_index => {
+                immediate_count += 1;
+                immediate_sizes[i] = @sizeOf(u64);
+            },
             .empty => {},
         }
     }
@@ -76,9 +88,257 @@ pub fn sizeInstruction(instruction: Instruction) usize
     return @sizeOf(zyte.Vm.InstructionHeader) + registers_size + (immediate_size * immediate_count);
 }
 
-pub fn encodeInstruction() void
+pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruction, instruction_addresses: []const u32) !usize
 {
+    const operand_layout = block: {
+        var operand_count: usize = 0;
+        var current_layout: zyte.Vm.OperandLayout = .none; 
 
+        if (instruction.write_operand != .empty)
+        {
+            operand_count += 1;
+            current_layout = .write_register;
+        }
+
+        for (instruction.read_operands) |operand|
+        {
+            switch (operand)
+            {
+                .register => {
+                    current_layout = switch (current_layout)
+                    {
+                        .none => .read_register,
+                        .write_register => .write_register_read_register,
+                        .write_register_read_register => .write_register_read_register_read_register,
+                        .write_register_read_register_read_register => unreachable,
+                        .write_register_immediate => .write_register_immediate_read_register,
+                        .write_register_immediate_immediate => unreachable,
+                        .write_register_immediate_read_register => unreachable,
+                        .write_register_read_register_immediate => unreachable,
+                        .read_register => .read_register_read_register,
+                        .read_register_read_register => unreachable,
+                        .read_register_immediate => unreachable,
+                        .immediate => .immediate_read_register,
+                        .immediate_immediate => unreachable,
+                        .immediate_read_register => unreachable,
+                        _ => unreachable,
+                    };
+
+                    operand_count += 1;
+                },
+                .immediate, .instruction_index, .data_point_index => {
+                    current_layout = switch (current_layout)
+                    {
+                        .none => .immediate,
+                        .write_register => .write_register_immediate,
+                        .write_register_read_register => .write_register_read_register_immediate,
+                        .write_register_read_register_read_register => unreachable,
+                        .write_register_immediate => .write_register_immediate_immediate,
+                        .write_register_immediate_immediate => unreachable,
+                        .write_register_immediate_read_register => unreachable,
+                        .write_register_read_register_immediate => unreachable,
+                        .read_register => .read_register_immediate,
+                        .read_register_read_register => unreachable,
+                        .read_register_immediate => unreachable,
+                        .immediate => .immediate_immediate,
+                        .immediate_immediate => unreachable,
+                        .immediate_read_register => unreachable,
+                        _ => unreachable,
+                    };
+
+                    operand_count += 1;
+                },
+                .empty => {},
+            }
+        }
+
+        break :block current_layout;
+    };
+
+    const immediate_size: zyte.Vm.OperandAddressingSize = block: {
+        var immediate: u64 = 0;
+
+        for (instruction.read_operands) |operand|
+        {
+            switch (operand)
+            {
+                .immediate => |operand_immediate| {
+                    immediate = operand_immediate;
+                    break;
+                },
+                else => immediate = std.math.maxInt(u64),
+            }
+        }
+
+        if (immediate <= std.math.maxInt(u8))
+        {
+            break: block .@"8";
+        }
+        
+        if (immediate > std.math.maxInt(u8) and immediate <= std.math.maxInt(u16))
+        {
+            break: block .@"16";
+        }
+
+        if (immediate > std.math.maxInt(u16) and immediate <= std.math.maxInt(u32))
+        {
+            break: block .@"32";
+        }
+
+        break: block .@"64";
+    };
+
+    const header = zyte.Vm.InstructionHeader 
+    {
+        .opcode = instruction.opcode,
+        .operand_layout = operand_layout,
+        .operand_size = .@"64",
+        .immediate_size = immediate_size,
+    };
+
+    const first_code_point = code_points.items.len;
+
+    try code_points.append(@bitCast(u16, header));
+
+    const code_points_per_immediate: usize = switch (immediate_size)
+    {
+        .@"8" => 1,
+        .@"16" => 1,
+        .@"32" => 2,
+        .@"64" => 4,
+    };
+
+    var register_pack: ?zyte.Vm.OperandPack = null;
+    var immediates: [2]?Instruction.Operand = .{ null, null };
+
+    switch (header.operand_layout)
+    {
+        .none => {},
+        .write_register => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .write_operand = instruction.write_operand.register,
+            };
+        },
+        .write_register_read_register => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .write_operand = instruction.write_operand.register,
+                .read_operand = instruction.read_operands[0].register,
+            };
+        },
+        .write_register_read_register_read_register => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .write_operand = instruction.write_operand.register,
+                .read_operand = instruction.read_operands[0].register,
+                .read_operand1 = instruction.read_operands[1].register,
+            };
+        },
+        .write_register_immediate => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .write_operand = instruction.write_operand.register,
+            };
+
+            immediates[0] = instruction.read_operands[0];
+        },
+        .write_register_immediate_immediate => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .write_operand = instruction.write_operand.register,
+            };
+
+            immediates[0] = instruction.read_operands[0];
+            immediates[1] = instruction.read_operands[1];
+        },
+        .write_register_immediate_read_register => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .write_operand = instruction.write_operand.register,
+                .read_operand = instruction.read_operands[1].register,
+            };
+
+            immediates[0] = instruction.read_operands[0];
+        },
+        .write_register_read_register_immediate => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .write_operand = instruction.write_operand.register,
+                .read_operand = instruction.read_operands[0].register,
+            };
+
+            immediates[0] = instruction.read_operands[1];
+        },
+        .read_register => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .read_operand = instruction.read_operands[0].register,
+            };
+        },
+        .read_register_read_register => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .read_operand = instruction.read_operands[0].register,
+                .read_operand1 = instruction.read_operands[1].register,
+            };
+        },
+        .read_register_immediate => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .read_operand = instruction.read_operands[0].register,
+            };
+
+            immediates[0] = instruction.read_operands[1];
+        },
+        .immediate => {
+            immediates[0] = instruction.read_operands[0];
+        },
+        .immediate_immediate => {
+            immediates[0] = instruction.read_operands[0];
+            immediates[1] = instruction.read_operands[1];
+        },
+        .immediate_read_register => {
+            register_pack = zyte.Vm.OperandPack
+            {
+                .read_operand = instruction.read_operands[1].register,
+            };
+
+            immediates[0] = instruction.read_operands[0];
+        },
+        _ => unreachable,
+    }
+
+    if (register_pack != null)
+    {
+        try code_points.append(@bitCast(u16, register_pack.?));
+    }
+
+    for (immediates) |mabye_immediate| 
+    {
+        if (mabye_immediate == null) continue;
+
+        switch (mabye_immediate.?)
+        {
+            .immediate => |immediate| {
+                try code_points.appendSlice(@ptrCast([*]const u16, &immediate)[0..code_points_per_immediate]);
+            },
+            .instruction_index => |instruction_index| {
+                const immediate = instruction_addresses[instruction_index];
+
+                try code_points.appendSlice(@ptrCast([*]const u16, &immediate)[0..code_points_per_immediate]);
+            },
+            .data_point_index => |data_point_index|
+            {
+                // const immediate = instruction_addresses[instruction_index];
+
+                try code_points.appendSlice(@ptrCast([*]const u16, &data_point_index)[0..@sizeOf(u64) / 2]);
+            },
+            else => unreachable,
+        }
+    }
+
+    return code_points.items.len - first_code_point;
 }
 
 ///Selects the zyte opcode/operands for the corresponding IR instruction
@@ -183,7 +443,9 @@ pub fn selectInstruction(
                         instruction.read_operands[i] = .{ .instruction_index = ir.procedures.items[procedure_index].entry };
                     },
                     .imported_procedure_index => unreachable,
-                    .data => {},
+                    .data => |data| {
+                        instruction.read_operands[i] = .{ .data_point_index = data.offset };
+                    },
                     .integer => |integer| {
                         instruction.read_operands[i] = .{ .immediate = integer };
                     },
@@ -213,8 +475,6 @@ pub fn generateProcedure(
         const basic_block_index = basic_blocks.index;
 
         const statements = ir.statements.items[basic_block.statement_offset..basic_block.statement_offset + basic_block.statement_count];
-
-        std.log.info("basic_block_index: {}", .{ basic_block_index });
 
         block_instruction_indices[basic_block_index] = @intCast(u32, instructions.items.len);
 
@@ -276,13 +536,35 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
     var instructions = std.ArrayListUnmanaged(Instruction) {};
     defer instructions.deinit(allocator);
 
+    var data_points = std.ArrayListUnmanaged(DataPoint) {};
+    defer data_points.deinit(allocator);
+
+    for (ir.symbol_table.items) |symbol|
+    {
+        switch (symbol)
+        {
+            .data => |data|
+            {
+                try data_points.append(allocator, .{
+                    .alignment = 1,
+                    .size = data.size,
+                    .offset = data.offset,
+                });
+            },
+            else => {},
+        }
+    }
+
+    for (data_points.items) |data_point|
+    {
+        std.log.info("data: align({}), offset: {}, size: {}", .{ data_point.alignment, data_point.offset, data_point.size });
+    }
+
     var procedure_queue = std.ArrayListUnmanaged(Procedure) {};
     defer procedure_queue.deinit(allocator);
 
     const block_instruction_indices = try allocator.alloc(u32, ir.basic_blocks.items.len);
     defer allocator.free(block_instruction_indices);
-
-    std.mem.set(u32, block_instruction_indices, 69);
 
     //Should really traverse a DAG (Directed Acyclic Graph) of procedures
     for (ir.entry_points.items) |entry_point|
@@ -291,9 +573,6 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
     }
 
     //Resolve block indices to instruction indices
-
-    std.log.info("block_instruction_indices: {any}", .{ block_instruction_indices });
-
     for (instructions.items) |*instruction|
     {
         for (instruction.read_operands) |*operand|
@@ -308,50 +587,6 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
         }
     }
 
-    std.debug.print("\nCodeGenIR: \n\n", .{});
-
-    for (instructions.items) |instruction, current_instruction_index|
-    {
-        std.debug.print("{:0>4}: {s}", .{ current_instruction_index, @tagName(instruction.opcode) });
-
-        switch (instruction.write_operand)
-        {
-            .register => |register| {
-                std.debug.print(" %{s}", .{ @tagName(register) });
-
-                if (instruction.read_operands.len != 0)
-                {
-                    std.debug.print(",", .{});
-                }
-            },
-            else => {},
-        }
-
-        for (instruction.read_operands) |operand, i|
-        {
-            if (i != 0 and i != instruction.read_operands.len and operand != .empty)
-            {
-                std.debug.print(",", .{});
-            }
-
-            switch (operand) 
-            {
-                .empty => {},
-                .register => |register| {
-                    std.debug.print(" %{s}", .{ @tagName(register) });
-                },
-                .immediate => |immediate| {
-                    std.debug.print(" {}", .{ immediate });
-                },
-                .instruction_index => |instruction_index| {
-                    std.debug.print(" &[i{}]", .{ instruction_index });
-                },
-            }
-        }
-
-        std.debug.print(";\n", .{});
-    }
-    
     const instruction_addresses = try allocator.alloc(u32, instructions.items.len);
     defer allocator.free(instruction_addresses);
 
@@ -368,16 +603,36 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
         }
     }
 
-    for (instruction_addresses) |address, i|
-    {
-        std.log.info("{}: {}", .{ i, address });
-    }
+    var code_points = std.ArrayList(u16).init(allocator);
+    defer code_points.deinit();
 
-    std.debug.print("\nAddress mapped CodeGenIR: \n\n", .{});
+    std.mem.set(u16, code_points.items, 0);
 
-    for (instructions.items) |instruction, current_instruction_index|
+    std.debug.print("\nGenerated zyte: \n\n", .{});
+
+    for (instructions.items) |instruction, i|
     {
-        std.debug.print("{:0>4}: {s}", .{ instruction_addresses[current_instruction_index], @tagName(instruction.opcode) });
+        const code_point_offset = code_points.items.len;
+        const code_point_count = try encodeInstruction(&code_points, instruction, instruction_addresses);
+
+        var desired_alignment: usize = 50;
+
+        desired_alignment -= std.fmt.count("{x:0>4}: ", .{ instruction_addresses[i] });
+
+        std.debug.print("{x:0>4}: ", .{ instruction_addresses[i] });
+
+        for (code_points.items[code_point_offset..code_point_offset + code_point_count]) |code_point|
+        {
+            desired_alignment -= std.fmt.count("{x:0>2} ", .{ @truncate(u8, code_point >> 8) });
+            desired_alignment -= std.fmt.count("{x:0>2} ", .{ @truncate(u8, code_point) });
+
+            std.debug.print("{x:0>2} ", .{ @truncate(u8, code_point >> 8) });
+            std.debug.print("{x:0>2} ", .{ @truncate(u8, code_point) });
+        }
+
+        try std.io.getStdErr().writer().writeByteNTimes(' ', desired_alignment);
+
+        std.debug.print("{s}", .{ @tagName(instruction.opcode) });
 
         switch (instruction.write_operand)
         {
@@ -392,9 +647,9 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
             else => {},
         }
 
-        for (instruction.read_operands) |operand, i|
+        for (instruction.read_operands) |operand, j|
         {
-            if (i != 0 and i != instruction.read_operands.len and operand != .empty)
+            if (j != 0 and j != instruction.read_operands.len and operand != .empty)
             {
                 std.debug.print(",", .{});
             }
@@ -409,8 +664,11 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
                     std.debug.print(" {}", .{ immediate });
                 },
                 .instruction_index => |instruction_index| {
-                    std.debug.print(" (0x{})", .{ instruction_addresses[instruction_index] });
+                    std.debug.print(" (0x{x})", .{ instruction_addresses[instruction_index] });
                 },
+                .data_point_index => |data_point_index| {
+                    std.debug.print(" (0x{x})", .{ data_point_index });
+                }
             }
         }
 
@@ -422,6 +680,8 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
         .sections = .{},
         .sections_content = .{},
     };
+
+    _ = try module.addSectionData(.instructions, u16, code_points.items);
 
     return module;
 }
