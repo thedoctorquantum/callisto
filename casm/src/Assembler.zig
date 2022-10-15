@@ -1,8 +1,8 @@
 const Assembler = @This();
 
-const zyte = @import("zyte");
-const Vm = zyte.Vm;
-const Module = zyte.Module;
+const callisto = @import("callisto");
+const Vm = callisto.Vm;
+const Module = callisto.Module;
 
 const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");

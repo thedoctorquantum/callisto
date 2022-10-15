@@ -7,19 +7,19 @@ const packages = struct
         .source = .{ .path = "lib/zig-clap/clap.zig" }
     };
 
-    const zyte = std.build.Pkg {
-        .name = "zyte",
-        .source = .{ .path = "zyte/src/main.zig" },
+    const callisto = std.build.Pkg {
+        .name = "callisto",
+        .source = .{ .path = "callisto/src/main.zig" },
         .dependencies = &.{
 
         },
     };
 
-    const zasm = std.build.Pkg {
-        .name = "zasm",
-        .source = .{ .path = "zasm/src/main.zig" },
+    const casm = std.build.Pkg {
+        .name = "casm",
+        .source = .{ .path = "casm/src/main.zig" },
         .dependencies = &.{
-            zyte
+            callisto
         },
     };
 };
@@ -29,46 +29,46 @@ pub fn build(builder: *std.build.Builder) void
     const target = builder.standardTargetOptions(.{});
     const mode = builder.standardReleaseOptions();
 
-    const zyte = builder.addExecutable("zyte", "zyte/src/main.zig");
+    const callisto = builder.addExecutable("callisto", "callisto/src/main.zig");
 
-    zyte.setTarget(target);
-    zyte.setBuildMode(mode);
-    zyte.install();
-    zyte.addPackage(packages.clap);
-    zyte.addPackage(packages.zasm);
-    zyte.linkLibC();
+    callisto.setTarget(target);
+    callisto.setBuildMode(mode);
+    callisto.install();
+    callisto.addPackage(packages.clap);
+    callisto.addPackage(packages.casm);
+    callisto.linkLibC();
 
-    const zasm = builder.addExecutable("zasm", "zasm/src/main.zig");
+    const casm = builder.addExecutable("casm", "casm/src/main.zig");
 
-    zasm.setTarget(target);
-    zasm.setBuildMode(mode);
-    zasm.install();
-    zasm.addPackage(packages.clap);
-    zasm.addPackage(packages.zyte);
+    casm.setTarget(target);
+    casm.setBuildMode(mode);
+    casm.install();
+    casm.addPackage(packages.clap);
+    casm.addPackage(packages.callisto);
 
-    const zyte_run_cmd = zyte.run();
+    const callisto_run_cmd = callisto.run();
 
-    zyte_run_cmd.step.dependOn(builder.getInstallStep());
+    callisto_run_cmd.step.dependOn(builder.getInstallStep());
 
     if (builder.args) |args| 
     {
-        zyte_run_cmd.addArgs(args);
+        callisto_run_cmd.addArgs(args);
     }
 
-    const zasm_run_cmd = zasm.run();
+    const casm_run_cmd = casm.run();
 
-    zasm_run_cmd.step.dependOn(builder.getInstallStep());
+    casm_run_cmd.step.dependOn(builder.getInstallStep());
 
     if (builder.args) |args| 
     {
-        zasm_run_cmd.addArgs(args);
+        casm_run_cmd.addArgs(args);
     }
     
-    const run_zyte_step = builder.step("run_zyte", "Run zyte");
-    run_zyte_step.dependOn(&zyte_run_cmd.step);
+    const run_callisto_step = builder.step("run_callisto", "Run callisto");
+    run_callisto_step.dependOn(&callisto_run_cmd.step);
 
-    const run_zasm_step = builder.step("run_zasm", "Run zasm");
-    run_zasm_step.dependOn(&zasm_run_cmd.step);
+    const run_casm_step = builder.step("run_casm", "Run casm");
+    run_casm_step.dependOn(&casm_run_cmd.step);
 
     // const exe_tests = builder.addTest("src/main.zig");
 

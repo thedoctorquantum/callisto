@@ -1,10 +1,10 @@
 const std = @import("std");
 const clap = @import("clap");
-const zasm = @import("zasm");
+const casm = @import("casm");
 
-const Assembler = zasm.Assembler;
-const Tokenizer = zasm.Tokenizer;
-const Parser = zasm.Parser;
+const Assembler = casm.Assembler;
+const Tokenizer = casm.Tokenizer;
+const Parser = casm.Parser;
 
 pub const Vm = @import("Vm.zig");
 pub const Module = @import("Module.zig");

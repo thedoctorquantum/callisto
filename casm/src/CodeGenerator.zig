@@ -1,17 +1,17 @@
 const std = @import("std");
-const zyte = @import("zyte");
+const callisto = @import("callisto");
 const IR = @import("IR.zig");
 
 pub const Instruction = struct 
 {
-    opcode: zyte.Vm.OpCode,
+    opcode: callisto.Vm.OpCode,
     write_operand: Operand,
     read_operands: [2]Operand,
 
     pub const Operand = union(enum)
     {
         empty,
-        register: zyte.Vm.Register,
+        register: callisto.Vm.Register,
         immediate: u64,
         instruction_index: u32,
         data_point_index: u32,
@@ -85,14 +85,14 @@ pub fn sizeInstruction(instruction: Instruction) usize
         immediate_size = @maximum(immediate_size, current_immediate_size);
     }
 
-    return @sizeOf(zyte.Vm.InstructionHeader) + registers_size + (immediate_size * immediate_count);
+    return @sizeOf(callisto.Vm.InstructionHeader) + registers_size + (immediate_size * immediate_count);
 }
 
 pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruction, instruction_addresses: []const u32) !usize
 {
     const operand_layout = block: {
         var operand_count: usize = 0;
-        var current_layout: zyte.Vm.OperandLayout = .none; 
+        var current_layout: callisto.Vm.OperandLayout = .none; 
 
         if (instruction.write_operand != .empty)
         {
@@ -155,7 +155,7 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
         break :block current_layout;
     };
 
-    const immediate_size: zyte.Vm.OperandAddressingSize = block: {
+    const immediate_size: callisto.Vm.OperandAddressingSize = block: {
         var immediate: u64 = 0;
 
         for (instruction.read_operands) |operand|
@@ -188,7 +188,7 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
         break: block .@"64";
     };
 
-    const header = zyte.Vm.InstructionHeader 
+    const header = callisto.Vm.InstructionHeader 
     {
         .opcode = instruction.opcode,
         .operand_layout = operand_layout,
@@ -208,27 +208,27 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
         .@"64" => 4,
     };
 
-    var register_pack: ?zyte.Vm.OperandPack = null;
+    var register_pack: ?callisto.Vm.OperandPack = null;
     var immediates: [2]?Instruction.Operand = .{ null, null };
 
     switch (header.operand_layout)
     {
         .none => {},
         .write_register => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .write_operand = instruction.write_operand.register,
             };
         },
         .write_register_read_register => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .write_operand = instruction.write_operand.register,
                 .read_operand = instruction.read_operands[0].register,
             };
         },
         .write_register_read_register_read_register => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .write_operand = instruction.write_operand.register,
                 .read_operand = instruction.read_operands[0].register,
@@ -236,7 +236,7 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
             };
         },
         .write_register_immediate => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .write_operand = instruction.write_operand.register,
             };
@@ -244,7 +244,7 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
             immediates[0] = instruction.read_operands[0];
         },
         .write_register_immediate_immediate => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .write_operand = instruction.write_operand.register,
             };
@@ -253,7 +253,7 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
             immediates[1] = instruction.read_operands[1];
         },
         .write_register_immediate_read_register => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .write_operand = instruction.write_operand.register,
                 .read_operand = instruction.read_operands[1].register,
@@ -262,7 +262,7 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
             immediates[0] = instruction.read_operands[0];
         },
         .write_register_read_register_immediate => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .write_operand = instruction.write_operand.register,
                 .read_operand = instruction.read_operands[0].register,
@@ -271,20 +271,20 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
             immediates[0] = instruction.read_operands[1];
         },
         .read_register => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .read_operand = instruction.read_operands[0].register,
             };
         },
         .read_register_read_register => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .read_operand = instruction.read_operands[0].register,
                 .read_operand1 = instruction.read_operands[1].register,
             };
         },
         .read_register_immediate => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .read_operand = instruction.read_operands[0].register,
             };
@@ -299,7 +299,7 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
             immediates[1] = instruction.read_operands[1];
         },
         .immediate_read_register => {
-            register_pack = zyte.Vm.OperandPack
+            register_pack = callisto.Vm.OperandPack
             {
                 .read_operand = instruction.read_operands[1].register,
             };
@@ -341,7 +341,7 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
     return code_points.items.len - first_code_point;
 }
 
-///Selects the zyte opcode/operands for the corresponding IR instruction
+///Selects the callisto opcode/operands for the corresponding IR instruction
 ///Currently only returns one instruction, but may end up selecting more or less for peephole reduction   
 pub fn selectInstruction(
     ir: IR, 
@@ -415,7 +415,7 @@ pub fn selectInstruction(
     switch (instruction_statement.write_operand)
     {
         .register => {
-            instruction.write_operand = .{ .register = @intToEnum(zyte.Vm.Register, @enumToInt(instruction_statement.write_operand.register)) };
+            instruction.write_operand = .{ .register = @intToEnum(callisto.Vm.Register, @enumToInt(instruction_statement.write_operand.register)) };
         },
         else => {},
     }
@@ -426,7 +426,7 @@ pub fn selectInstruction(
         {
             .empty => {},
             .register => |register| {
-                instruction.read_operands[i] = .{ .register = @intToEnum(zyte.Vm.Register, @enumToInt(register)) };
+                instruction.read_operands[i] = .{ .register = @intToEnum(callisto.Vm.Register, @enumToInt(register)) };
             },
             .immediate => |immediate| {
                 instruction.read_operands[i] = .{ .immediate = immediate };
@@ -517,9 +517,9 @@ pub fn generateProcedure(
                         else => {},
                     }
 
-                    const zyte_instruction = try selectInstruction(ir, instructions.items, instruction, @intCast(u32, i));
+                    const callisto_instruction = try selectInstruction(ir, instructions.items, instruction, @intCast(u32, i));
 
-                    try instructions.append(allocator, zyte_instruction);
+                    try instructions.append(allocator, callisto_instruction);
                 }
             }
         }
@@ -531,7 +531,7 @@ pub fn generateProcedure(
     }
 }
 
-pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module 
+pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module 
 {
     var instructions = std.ArrayListUnmanaged(Instruction) {};
     defer instructions.deinit(allocator);
@@ -608,7 +608,7 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
 
     std.mem.set(u16, code_points.items, 0);
 
-    std.debug.print("\nGenerated zyte: \n\n", .{});
+    std.debug.print("\nGenerated callisto: \n\n", .{});
 
     for (instructions.items) |instruction, i|
     {
@@ -675,7 +675,7 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !zyte.Module
         std.debug.print(";\n", .{});
     }
 
-    var module = zyte.Module {
+    var module = callisto.Module {
         .allocator = allocator,
         .sections = .{},
         .sections_content = .{},

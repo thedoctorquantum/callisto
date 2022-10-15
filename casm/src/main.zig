@@ -43,7 +43,7 @@ fn run() !void
     {
         var parser: Parser = .{ 
             .allocator = allocator,  
-            .source = @embedFile("basic_syntax.zasm"),
+            .source = @embedFile("basic_syntax.casm"),
             .tokens = .{},
             .token_tags = &.{},
             .token_starts = &.{},
@@ -134,7 +134,7 @@ fn run() !void
 
         _ = try std.io.getStdErr().write("\n");
 
-        std.log.info("basic_syntax.zasm parsed successfully", .{});
+        std.log.info("basic_syntax.casm parsed successfully", .{});
 
         //print ir
         {
