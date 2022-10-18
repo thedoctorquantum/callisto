@@ -166,6 +166,9 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
                     immediate = operand_immediate;
                     break;
                 },
+                .instruction_index, .data_point_index => {
+                    break: block .@"64";
+                },
                 else => immediate = std.math.maxInt(u64),
             }
         }
@@ -324,15 +327,15 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
                 try code_points.appendSlice(@ptrCast([*]const u16, &immediate)[0..code_points_per_immediate]);
             },
             .instruction_index => |instruction_index| {
-                const immediate = instruction_addresses[instruction_index];
+                const immediate: u64 = instruction_addresses[instruction_index];
 
                 try code_points.appendSlice(@ptrCast([*]const u16, &immediate)[0..code_points_per_immediate]);
             },
             .data_point_index => |data_point_index|
             {
-                // const immediate = instruction_addresses[instruction_index];
+                const immediate: u64 = data_point_index;
 
-                try code_points.appendSlice(@ptrCast([*]const u16, &data_point_index)[0..@sizeOf(u64) / 2]);
+                try code_points.appendSlice(@ptrCast([*]const u16, &immediate)[0..@sizeOf(u64) / 2]);
             },
             else => unreachable,
         }
@@ -399,7 +402,7 @@ pub fn selectInstruction(
                         .procedure_index => {
                             instruction.opcode = .@"call";
                         },
-                        .imported_procedure_index => {
+                        .imported_procedure => {
                             instruction.opcode = .@"ecall";          
                         },
                         else => unreachable,
@@ -442,7 +445,9 @@ pub fn selectInstruction(
                     .procedure_index => |procedure_index| {
                         instruction.read_operands[i] = .{ .instruction_index = ir.procedures.items[procedure_index].entry };
                     },
-                    .imported_procedure_index => unreachable,
+                    .imported_procedure => |procedure| {
+                        instruction.read_operands[i] = .{ .immediate = procedure.index };
+                    },
                     .data => |data| {
                         instruction.read_operands[i] = .{ .data_point_index = data.offset };
                     },
@@ -492,23 +497,38 @@ pub fn generateProcedure(
                                 .symbol => |symbol| {
                                     const procedure_symbol = ir.symbol_table.items[symbol];
 
-                                    var already_generated: bool = block: {
-                                        for (procedure_queue.items) |procedure|
-                                        {
-                                            if (procedure.index == procedure_symbol.procedure_index)
-                                            {
-                                                break: block true;
-                                            }
-                                        }
-
-                                        break: block false;
-                                    };
-
-                                    if (!already_generated)
+                                    switch (procedure_symbol)
                                     {
-                                        try procedure_queue.append(allocator, .{
-                                            .index = procedure_symbol.procedure_index,
-                                        });
+                                        .procedure_index => {
+                                            var already_generated: bool = block: {
+                                                for (procedure_queue.items) |procedure|
+                                                {
+                                                    if (procedure.index == procedure_symbol.procedure_index)
+                                                    {
+                                                        break: block true;
+                                                    }
+                                                }
+
+                                                for (ir.entry_points.items) |entry_point_index|
+                                                {
+                                                    if (entry_point_index == procedure_symbol.procedure_index)
+                                                    {
+                                                        break: block true;
+                                                    }
+                                                }
+
+                                                break: block false;
+                                            };
+
+                                            if (!already_generated)
+                                            {
+                                                try procedure_queue.append(allocator, .{
+                                                    .index = procedure_symbol.procedure_index,
+                                                });
+                                            }
+                                        },
+                                        .imported_procedure => {},
+                                        else => unreachable,
                                     }
                                 },
                                 else => {},
@@ -626,8 +646,10 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
             desired_alignment -= std.fmt.count("{x:0>2} ", .{ @truncate(u8, code_point >> 8) });
             desired_alignment -= std.fmt.count("{x:0>2} ", .{ @truncate(u8, code_point) });
 
-            std.debug.print("{x:0>2} ", .{ @truncate(u8, code_point >> 8) });
-            std.debug.print("{x:0>2} ", .{ @truncate(u8, code_point) });
+            const bytes = std.mem.asBytes(&code_point);
+
+            std.debug.print("{x:0>2} ", .{ bytes[0] });
+            std.debug.print("{x:0>2} ", .{ bytes[1] });
         }
 
         try std.io.getStdErr().writer().writeByteNTimes(' ', desired_alignment);
@@ -679,9 +701,51 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
         .allocator = allocator,
         .sections = .{},
         .sections_content = .{},
+        .entry_point = instruction_addresses[block_instruction_indices[ir.procedures.items[ir.entry_point_procedure].entry]],
     };
 
     _ = try module.addSectionData(.instructions, u16, code_points.items);
+
+    var exported_symbols = std.ArrayList(callisto.Module.SymbolExport).init(allocator);
+    defer exported_symbols.deinit();
+
+    const main_symbol = "main";
+
+    try exported_symbols.append(.{
+        .tag = .procedure,
+        .offset = 0,
+        .size = main_symbol.len,
+        .address = instruction_addresses[block_instruction_indices[ir.procedures.items[ir.entry_points.items[0]].entry]], //yuck
+    });
+
+    var exported_symbol_text = std.ArrayList(u8).init(allocator);
+    defer exported_symbol_text.deinit();
+
+    try exported_symbol_text.appendSlice(main_symbol);
+
+    const export_section_data = try allocator.alloc(
+        u8, 
+        @sizeOf(callisto.Module.ExportSectionHeader) + 
+        (exported_symbols.items.len * @sizeOf(callisto.Module.SymbolExport)) +
+        exported_symbol_text.items.len
+    );
+    defer allocator.free(export_section_data);
+
+    var export_section_fba = std.heap.FixedBufferAllocator.init(export_section_data);
+
+    const export_section_header = try export_section_fba.allocator().create(callisto.Module.ExportSectionHeader);
+
+    export_section_header.symbol_count = exported_symbols.items.len;
+
+    std.mem.copy(
+        callisto.Module.SymbolExport, 
+        try export_section_fba.allocator().alloc(callisto.Module.SymbolExport, exported_symbols.items.len), 
+        exported_symbols.items
+    );
+
+    std.mem.copy(u8, try export_section_fba.allocator().alloc(u8, exported_symbol_text.items.len), exported_symbol_text.items);
+
+    _ = try module.addSectionDataAligned(.exports, u8, export_section_data, @alignOf(callisto.Module.ExportSectionHeader));
 
     return module;
 }

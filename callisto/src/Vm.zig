@@ -315,20 +315,18 @@ pub const ExecuteError = error
     MemoryAccessViolation,
 };
 
-pub fn execute(module: Loader.ModuleInstance) ExecuteError!void 
+pub fn execute(module: Loader.ModuleInstance, address: usize) ExecuteError!void 
 {
     @setRuntimeSafety(false);
 
     var registers = std.mem.zeroes([16]u64);
 
-    var instruction_pointer: [*]align(2) const u8 = @ptrCast([*]const u8, module.instructions.ptr);
+    const instructions_begin: [*]align(2) const u8 = @ptrCast([*]const u8, module.instructions.ptr);
 
-    const instructions_begin: [*]align(2) const u8 = instruction_pointer;
+    var instruction_pointer: [*]align(2) const u8 = @alignCast(@alignOf(u16), instructions_begin + address);
 
     var data_stack_pointer: [*]u64 = module.data_stack.ptr;
     var call_stack_pointer: [*]Vm.CallFrame = module.call_stack.ptr;
-
-    _ = call_stack_pointer;
 
     //- Each Instruction loop can fetch 1 or more code points,
     //- Decode Loop:
@@ -350,150 +348,142 @@ pub fn execute(module: Loader.ModuleInstance) ExecuteError!void
         switch (instruction_header.operand_layout)
         {
             .none => {},
-            .write_register => {},
-            .write_register_read_register => {},
-            .write_register_read_register_read_register => {},
-            .write_register_immediate => {},
-            .write_register_immediate_immediate => {},
-            .write_register_immediate_read_register => {},
-            .write_register_read_register_immediate => {},
-            .read_register => {},
-            .read_register_read_register => {},
-            .read_register_immediate => {},
-            .immediate => {},
-            .immediate_immediate => {},
-            .immediate_read_register => {},
+            .write_register => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
+            },
+            .write_register_read_register => {
+                
+            },
+            .write_register_read_register_read_register => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
+                read_operand0 = registers[@enumToInt(register_operands.read_operand)];
+                read_operand1 = registers[@enumToInt(register_operands.read_operand1)];
+            },
+            .write_register_immediate => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                switch (instruction_header.immediate_size)
+                {
+                    .@"8" => {
+                        read_operand0 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"16" => {
+                        read_operand0 = @ptrCast(*const u16, instruction_pointer).*;
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"32" => {
+                        read_operand0 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u32);
+                    },
+                    .@"64" => { 
+                        read_operand0 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u64);
+                    },
+                }
+
+                write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
+
+                std.log.info("Operands: {s}, {}", .{ @tagName(register_operands.write_operand), read_operand0 });
+            },
+            .write_register_immediate_immediate => {
+                unreachable;
+            },
+            .write_register_immediate_read_register => {
+                unreachable;
+            },
+            .write_register_read_register_immediate => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                switch (instruction_header.immediate_size)
+                {
+                    .@"8" => {
+                        read_operand1 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"16" => {
+                        read_operand1 = @ptrCast(*const u16, instruction_pointer).*;
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"32" => {
+                        read_operand1 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u32);
+                    },
+                    .@"64" => { 
+                        read_operand1 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u64);
+                    },
+                }
+
+                write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
+                read_operand0 = registers[@enumToInt(register_operands.read_operand)];
+
+                std.log.info("Operands: {s}, {s}, {}", .{ @tagName(register_operands.write_operand), @tagName(register_operands.read_operand), read_operand1 });
+            },
+            .read_register => { unreachable; },
+            .read_register_read_register => { unreachable; },
+            .read_register_immediate => {
+                const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
+                instruction_pointer += @sizeOf(u16);
+
+                switch (instruction_header.immediate_size)
+                {
+                    .@"8" => {
+                        read_operand1 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"16" => {
+                        read_operand1 = @ptrCast(*const u16, instruction_pointer).*;
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"32" => {
+                        read_operand1 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u32);
+                    },
+                    .@"64" => { 
+                        read_operand1 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u64);
+                    },
+                }
+
+                read_operand0 = registers[@enumToInt(register_operands.read_operand)];
+
+                std.log.info("Operands: {s}, {}", .{ @tagName(register_operands.read_operand), read_operand1 });
+            },
+            .immediate => {
+                switch (instruction_header.immediate_size)
+                {
+                    .@"8" => {
+                        read_operand0 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"16" => {
+                        read_operand0 = @ptrCast(*const u16, instruction_pointer).*;
+                        instruction_pointer += @sizeOf(u16);
+                    },
+                    .@"32" => {
+                        read_operand0 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u32);
+                    },
+                    .@"64" => { 
+                        read_operand0 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
+                        instruction_pointer += @sizeOf(u64);
+                    },
+                }
+
+                std.log.info("Operand: {}", .{ read_operand0 });
+            },
+            .immediate_immediate => unreachable,
+            .immediate_read_register => unreachable,
             _ => unreachable,
-
-            // .none => {},
-            // .immediate => {
-            //     switch (instruction_header.immediate_size)
-            //     {
-            //         .@"8" => {
-            //             read_operand0 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
-            //             instruction_pointer += @sizeOf(u16);
-            //         },
-            //         .@"16" => {
-            //             read_operand0 = @ptrCast(*const u16, instruction_pointer).*;
-            //             instruction_pointer += @sizeOf(u16);
-            //         },
-            //         .@"32" => {
-            //             read_operand0 = @ptrCast(*const u32, @alignCast(@alignOf(u32), instruction_pointer)).*; //unaligned read
-            //             instruction_pointer += @sizeOf(u32);
-            //         },
-            //         .@"64" => { 
-            //             read_operand0 = @ptrCast(*const u64, @alignCast(@alignOf(u64), instruction_pointer)).*; //unaligned read
-            //             instruction_pointer += @sizeOf(u64);
-            //         },
-            //     }
-            // },
-            // .immediate_read_register => {
-            //     const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
-            //     instruction_pointer += @sizeOf(u16);
-
-            //     switch (instruction_header.immediate_size)
-            //     {
-            //         .@"8" => {
-            //             read_operand0 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
-            //             instruction_pointer += @sizeOf(u16);
-            //         },
-            //         .@"16" => {
-            //             read_operand0 = @ptrCast(*const u16, instruction_pointer).*;
-            //             instruction_pointer += @sizeOf(u16);
-            //         },
-            //         .@"32" => {
-            //             read_operand0 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
-            //             instruction_pointer += @sizeOf(u32);
-            //         },
-            //         .@"64" => { 
-            //             read_operand0 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
-            //             instruction_pointer += @sizeOf(u64);
-            //         },
-            //     }
-
-            //     write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
-
-            //     std.log.info("Operands: {}, {s}({})", .{ read_operand0, @tagName(register_operands.write_operand), write_operand0.* });
-            // },
-            // .read_register => {
-            //     const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
-            //     instruction_pointer += @sizeOf(u16);
-
-            //     read_operand0 = registers[@enumToInt(register_operands.read_operand)];
-            // },
-            // .read_register_read_register => {
-            //     const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
-            //     instruction_pointer += @sizeOf(u16);
-
-            //     read_operand0 = registers[@enumToInt(register_operands.read_operand)];
-            //     write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
-            // },
-            // .write_register_read_register_read_register => {
-            //     const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
-            //     instruction_pointer += @sizeOf(u16);
-
-            //     read_operand0 = registers[@enumToInt(register_operands.read_operand)];
-            //     read_operand1 = registers[@enumToInt(register_operands.read_operand1)];
-            //     write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
-            // },
-            // .write_register_immediate_read_register => {
-            //     const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
-            //     instruction_pointer += @sizeOf(u16);
-
-            //     switch (instruction_header.immediate_size)
-            //     {
-            //         .@"8" => {
-            //             read_operand1 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
-            //             instruction_pointer += @sizeOf(u16);
-            //         },
-            //         .@"16" => {
-            //             read_operand1 = @ptrCast(*const u16, instruction_pointer).*;
-            //             instruction_pointer += @sizeOf(u16);
-            //         },
-            //         .@"32" => {
-            //             read_operand1 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
-            //             instruction_pointer += @sizeOf(u32);
-            //         },
-            //         .@"64" => { 
-            //             read_operand1 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
-            //             instruction_pointer += @sizeOf(u64);
-            //         },
-            //     }
-
-            //     read_operand0 = registers[@enumToInt(register_operands.read_operand)];
-            //     write_operand0 = &registers[@enumToInt(register_operands.write_operand)];
-
-            //     std.log.info("Operands: {s}, {}, {s}", .{ @tagName(register_operands.read_operand), read_operand1, @tagName(register_operands.write_operand) });
-            // },
-            // .read_register_immediate => {
-            //     const register_operands = @ptrCast(*const OperandPack, instruction_pointer).*;
-            //     instruction_pointer += @sizeOf(u16);
-
-            //     switch (instruction_header.immediate_size)
-            //     {
-            //         .@"8" => {
-            //             read_operand1 = @truncate(u8, @ptrCast(*const u16, instruction_pointer).*);
-            //             instruction_pointer += @sizeOf(u16);
-            //         },
-            //         .@"16" => {
-            //             read_operand1 = @ptrCast(*const u16, instruction_pointer).*;
-            //             instruction_pointer += @sizeOf(u16);
-            //         },
-            //         .@"32" => {
-            //             read_operand1 = @ptrCast(*align(1) const u32, instruction_pointer).*; //unaligned read
-            //             instruction_pointer += @sizeOf(u32);
-            //         },
-            //         .@"64" => { 
-            //             read_operand1 = @ptrCast(*align(1) const u64, instruction_pointer).*; //unaligned read
-            //             instruction_pointer += @sizeOf(u64);
-            //         },
-            //     }
-
-            //     read_operand0 = registers[@enumToInt(register_operands.read_operand)];
-
-            //     std.log.info("Operands: {}, {}", .{ read_operand0, read_operand1 });
-            // },
-            // _ => unreachable,
         }
 
         std.log.info("{s}", .{ @tagName(instruction_header.opcode) });
@@ -541,8 +531,27 @@ pub fn execute(module: Loader.ModuleInstance) ExecuteError!void
                     instruction_pointer = @ptrCast(@TypeOf(instruction_pointer), @alignCast(2, instructions_begin + read_operand1));
                 }
             },
-            .call => unreachable,
-            .@"return" => return,
+            .call => 
+            {
+                if (@ptrToInt(call_stack_pointer) >= @ptrToInt(module.call_stack.ptr + module.call_stack.len))
+                {
+                    return error.StackOverflow;
+                }
+
+                call_stack_pointer[0].return_pointer = instruction_pointer;
+                call_stack_pointer += 1;
+                instruction_pointer = @ptrCast(@TypeOf(instruction_pointer), @alignCast(2, instructions_begin + read_operand0));
+            },
+            .@"return" => 
+            {
+                if (call_stack_pointer == module.call_stack.ptr)
+                {
+                    return;
+                }
+                
+                call_stack_pointer -= 1;
+                instruction_pointer = call_stack_pointer[0].return_pointer;
+            },
             .ecall => {
                 module.natives[read_operand0](
                     &registers,
@@ -577,7 +586,7 @@ pub const Executable = struct
 
 pub const CallFrame = struct
 {
-    return_pointer: u64,
+    return_pointer: [*]align(2) const u8,
     registers: [16]u64,
 };
 

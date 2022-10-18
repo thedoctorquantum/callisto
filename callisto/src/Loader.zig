@@ -44,6 +44,8 @@ pub fn load(allocator: std.mem.Allocator, module: Module) !ModuleInstance
         .natives = &.{},
     };
 
+    module_instance.call_stack = try allocator.alloc(Vm.CallFrame, 64);
+
     linkNamespace(allocator, &module_instance, natives);
 
     if (module.getSectionData(.instructions, 0)) |instructions_bytes|
@@ -56,12 +58,15 @@ pub fn load(allocator: std.mem.Allocator, module: Module) !ModuleInstance
         module_instance.data = try allocator.dupe(u8, data);
     }
 
+    try Vm.execute(module_instance, module.entry_point);
+
     return module_instance;
 } 
 
 pub fn unload(allocator: std.mem.Allocator, module_instance: ModuleInstance) void
 {
     allocator.free(module_instance.instructions);
+    allocator.free(module_instance.call_stack);
 
     if (module_instance.data.len > 0)
     {

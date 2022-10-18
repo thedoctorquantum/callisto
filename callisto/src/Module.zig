@@ -6,12 +6,15 @@ allocator: std.mem.Allocator,
 interpreter: ?[]const u8 = null,
 sections: std.ArrayListUnmanaged(Section),
 sections_content: std.ArrayListUnmanaged(u8),
+entry_point: u32,
 
 pub const Header = extern struct 
 {
-    identifier: [4]u8 = "zyte".*,
+    identifier: [8]u8 = "callisto".*,
     endianess: Endianess,
     version: u32 = 0,
+
+    entry_point: u32,
 
     section_count: u64,
     section_contents_offset: u64,
@@ -175,6 +178,7 @@ pub fn decode(allocator: std.mem.Allocator, binary: []const u8) !@This()
         .allocator = allocator,
         .sections = .{},
         .sections_content = .{},
+        .entry_point = 0,
     };
     
     var head: usize = 0;
@@ -199,10 +203,11 @@ pub fn decode(allocator: std.mem.Allocator, binary: []const u8) !@This()
 
     const header = @ptrCast(*const Header, @alignCast(@alignOf(Header), binary.ptr + head));
 
-    if (!std.mem.eql(u8, &header.identifier, "zyte")) return error.InvalidIdentifier;
+    if (!std.mem.eql(u8, &header.identifier, "callisto")) return error.InvalidIdentifier;
 
     head += @sizeOf(Header);
 
+    self.entry_point = header.entry_point;
     try self.sections.resize(self.allocator, header.section_count);
 
     //non-memcpy deserialize
@@ -234,6 +239,7 @@ pub fn encode(self: @This(), writer: anytype) !void
     {
         .endianess = .little,
         .section_count = self.sections.items.len,
+        .entry_point = self.entry_point,
         .section_contents_offset = @sizeOf(Header) + (self.sections.items.len * @sizeOf(Section)),
         .section_contents_size = self.sections_content.items.len,
     };

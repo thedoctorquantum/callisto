@@ -120,7 +120,11 @@ pub const SymbolValue = union(enum)
 {
     basic_block_index: u32,
     procedure_index: u32,
-    imported_procedure_index: u32,
+    imported_procedure: struct
+    {
+        index: u32,
+        name: []const u8, //should really be stored in the IR
+    },
     data: struct {
         offset: u32,
         size: u32, 
@@ -147,6 +151,7 @@ pub const BasicBlock = struct
 
 allocator: std.mem.Allocator,
 entry_points: std.ArrayListUnmanaged(u32) = .{},
+entry_point_procedure: u32,
 procedures: std.ArrayListUnmanaged(Procedure) = .{},
 basic_blocks: std.ArrayListUnmanaged(BasicBlock) = .{},
 statements: std.ArrayListUnmanaged(Statement) = .{},

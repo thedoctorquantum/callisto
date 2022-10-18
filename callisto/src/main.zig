@@ -475,8 +475,6 @@ fn run() !void
 
         _ = main_address;
 
-        try Vm.execute(module_instance);
-
         return;
     }
 

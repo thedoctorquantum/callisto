@@ -289,6 +289,7 @@ pub const Token = struct
         argument_register,
         keyword_import,
         keyword_export,
+        keyword_entry,
         keyword_proc,
         keyword_var,
     };
@@ -310,6 +311,7 @@ pub const Token = struct
             => null,
             .keyword_import => "import",
             .keyword_export => "export",
+            .keyword_entry => "entry",
             .keyword_proc => "proc",
             .keyword_var => "var",
             .comma => ",",

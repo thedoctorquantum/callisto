@@ -54,7 +54,7 @@ fn run() !void
             .extra_data = .{},
             .ir = .{
                 .allocator = allocator,
-
+                .entry_point_procedure = 0,
                 .statements = .{},
                 .symbol_table = .{},
                 .data = .{},
@@ -204,7 +204,7 @@ fn run() !void
             {
                 .basic_block_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "block: {}", .{ index }), 
                 .procedure_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "proc: {}", .{ index }), 
-                .imported_procedure_index => |index| try std.fmt.format(std.io.getStdErr().writer(), "import proc: {}", .{ index }), 
+                .imported_procedure => |procedure| try std.fmt.format(std.io.getStdErr().writer(), "import proc: {s}, {}", .{ procedure.name, procedure.index }), 
                 .data => |data| try std.fmt.format(std.io.getStdErr().writer(), "{s}", .{ ir.data.items[data.offset..data.offset + data.size] }), 
                 .integer => |integer| try std.fmt.format(std.io.getStdErr().writer(), "{}", .{ integer }), 
             }
@@ -214,7 +214,12 @@ fn run() !void
 
         const module = try CodeGenerator.generate(allocator, ir);
 
-        _ = module;
+        const out_module_file_path = "out.csto";
+
+        const out_file = std.fs.cwd().openFile(out_module_file_path, .{ .mode = .read_write }) catch try std.fs.cwd().createFile(out_module_file_path, .{});
+        defer out_file.close();
+
+        try module.encode(out_file.writer());
 
         return;
     }

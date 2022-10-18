@@ -5,17 +5,21 @@ var message_len = $sizeof(message);
 var other_message = "bye, world!";
 var other_message_len = $sizeof(other_message);
 
+import proc nativeTest;
+import proc alloc;
+import proc puts;
+
 //entrypoint procedure
-export proc main {
-entry: 
+entry proc main 
+{
     a0 = move other_message;
     a1 = move other_message_len;
-    call print;
+    call nativeTest;
 
     c0 = clear;
 
     loop_begin: {
-        c1 = neql c0, 100;
+        c1 = neql c0, 10;
         c0 = iadd c0, 1;
 
         jumpif c1, loop_begin;
@@ -49,4 +53,10 @@ proc print {
     nullop;
 end:
     return;
+}
+
+export proc recurse {
+    a7 = iadd a0, a1;
+    call recurse;
+    unreachable;
 }

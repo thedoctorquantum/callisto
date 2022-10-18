@@ -42,6 +42,7 @@ basic_block_patches: std.StringHashMapUnmanaged(struct
     basic_block: u32,
     is_next: bool,
 }),
+next_import_index: u32 = 0,
 
 pub const Scope = struct 
 {
@@ -318,6 +319,8 @@ pub fn parseVar(self: *@This()) !void
 pub fn parseProcedure(self: *@This()) !void
 {
     const is_export = self.eatToken(.keyword_export) != null;
+    const is_import = self.eatToken(.keyword_import) != null;
+    const is_entry = self.eatToken(.keyword_entry) != null;
 
     _ = try self.expectToken(.keyword_proc);
 
@@ -325,7 +328,42 @@ pub fn parseProcedure(self: *@This()) !void
 
     const identifier = self.source[self.token_starts[identifier_token]..self.token_ends[identifier_token]];
 
-    if (is_export)
+    if (is_import)
+    {
+        _ = try self.expectToken(.semicolon);
+
+        if (self.getSymbol(identifier) catch null) |symbol_index|
+        {
+            if (self.ir.symbol_table.items[symbol_index] == .imported_procedure)
+            {
+                return;
+            }
+        }
+        else 
+        {
+            const symbol = try self.ir.addGlobal(.{
+                .imported_procedure = .{ 
+                    .index = self.next_import_index,
+                    .name = identifier,
+                },
+            });
+
+            self.next_import_index += 1;
+
+            std.log.info("Defined import proc {s} as G{}", .{ identifier, symbol });
+
+            try self.defineSymbol(identifier, symbol);
+
+            return;
+        }
+    }
+
+    if (is_entry)
+    {
+        self.ir.entry_point_procedure = @intCast(u32, self.ir.procedures.items.len);
+    }
+
+    if (is_export or is_entry)
     {
         try self.ir.entry_points.append(self.allocator, @intCast(u32, self.ir.procedures.items.len));
     }
