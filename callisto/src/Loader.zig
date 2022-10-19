@@ -24,6 +24,10 @@ const natives = struct
 
     pub fn alloc(size: u64) []const u8
     {
+        const log = std.log.scoped(.Loader);
+
+        log.info("Alloc {}", .{ size });
+
         return @ptrCast([*]const u8, std.c.malloc(size))[0..size];
     }
 

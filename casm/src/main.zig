@@ -40,10 +40,43 @@ fn run() !void
 
     const allocator = gpa.allocator();
 
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help Display this help and exit.
+        \\-v, --version Display the version and exit.
+        \\-s, --source <str>... Specify callisto assembly source code
+        \\-o, --out_module <str> Specify the name of the output module
+        \\-i, --interpreter <str> Specify an interpreter path
+    );
+        
+    const clap_result = try clap.parse(clap.Help, &params, clap.parsers.default, .{});
+    defer clap_result.deinit();
+
+    if (clap_result.args.help)
     {
+        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+    }   
+        
+    if (clap_result.args.version)
+    {
+        return try std.io.getStdErr().writer().print("{s}\n", .{ "0.1.0" });
+    }
+
+    for (clap_result.args.source) |source_path|
+    {
+        std.log.info("{s}", .{ source_path });
+
+        const source_file = try std.fs.cwd().openFile(source_path, .{});
+        defer source_file.close(); 
+
+        const source = try source_file.readToEndAlloc(allocator, std.math.maxInt(u32));
+        defer allocator.free(source);
+
+        const absolute_path = try std.fs.cwd().realpathAlloc(allocator, source_path);
+        defer allocator.free(absolute_path);
+
         var parser: Parser = .{ 
             .allocator = allocator,  
-            .source = @embedFile("basic_syntax.casm"),
+            .source = source,
             .tokens = .{},
             .token_tags = &.{},
             .token_starts = &.{},
@@ -106,7 +139,7 @@ fn run() !void
                         try std.fmt.format(std.io.getStdErr().writer(), "Error: expected '{s}' at {s}:{}:{}\n", 
                         .{  
                             Tokenizer.Token.lexeme(expected_token.tag) orelse @tagName(expected_token.tag), 
-                            "/home/zak/Dev/Zig/Zyte/zasm/src/basic_syntax.zasm",
+                            absolute_path,
                             line_number + 1, 
                             column 
                         });
@@ -212,7 +245,12 @@ fn run() !void
             _ = try std.io.getStdErr().write("\n");
         }
 
-        const module = try CodeGenerator.generate(allocator, ir);
+        var module = try CodeGenerator.generate(allocator, ir);
+
+        if (clap_result.args.interpreter) |interpreter|
+        {
+            module.interpreter = interpreter;
+        }
 
         const out_module_file_path = "out.csto";
 
@@ -222,28 +260,6 @@ fn run() !void
         try module.encode(out_file.writer());
 
         return;
-    }
-
-    const params = comptime clap.parseParamsComptime(
-        \\-h, --help Display this help and exit.
-        \\-v, --version Display the version and exit.
-        \\-s, --source <str>... Specify zyte assembly source code
-        \\-m, --module <str>... Specify a module to be loaded
-        \\-o, --out_module <str> Specify the name of the output module
-        \\-i, --interpreter <str> Specify an interpreter path
-    );
-        
-    const clap_result = try clap.parse(clap.Help, &params, clap.parsers.default, .{});
-    defer clap_result.deinit();
-
-    if (clap_result.args.help)
-    {
-        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
-    }   
-        
-    if (clap_result.args.version)
-    {
-        return try std.io.getStdErr().writer().print("{s}\n", .{ "0.1.0" });
     }
 
     return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});

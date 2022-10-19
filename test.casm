@@ -14,7 +14,7 @@ entry proc main
 {
     a0 = move other_message;
     a1 = move other_message_len;
-    call nativeTest;
+    call alloc;
 
     c0 = clear;
 
