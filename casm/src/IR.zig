@@ -49,7 +49,6 @@ pub const Statement = union(enum)
         {
             nullop,
             @"unreachable",
-            @"break",
             move,
             clear,
             read8,
@@ -80,6 +79,7 @@ pub const Statement = union(enum)
             jumpif,
             call,
             @"return",
+            ebreak,
         };
 
         pub const Register = enum 

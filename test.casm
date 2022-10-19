@@ -29,7 +29,7 @@ entry proc main
     a6 = move 0xa3;
     a5 = move 0xb4;
 
-    call fmadd;
+    call print;
 
     a7 = move exit;
 
@@ -47,7 +47,19 @@ proc fmadd {
 
 /* print function */
 proc print {
-    jump end;
+    call puts;
+
+    loop: {
+        if: /* c0 == 100 */ {
+            c1 = eql c0, 100;
+            c0 = iadd c0, 1;
+            jumpif c1, loop;
+        } else: {
+            //doee something at the end of the loop idk
+        }
+    }
+
+    jump end; //testing dead code elim
     nullop; //dead code
     nullop;
     nullop;

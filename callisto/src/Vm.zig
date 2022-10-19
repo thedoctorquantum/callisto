@@ -174,7 +174,6 @@ pub const OpCode = enum(u8)
 {
     nullop,
     @"unreachable",
-    @"break",
     move,
     clear,
     read8,
@@ -205,6 +204,7 @@ pub const OpCode = enum(u8)
     jumpif,
     call,
     ecall,
+    ebreak,
     @"return",
 
     imp7,
@@ -493,7 +493,7 @@ pub fn execute(module: Loader.ModuleInstance, address: usize) ExecuteError!void
         {
             .nullop => {},
             .@"unreachable" => return error.UnreachableInstruction,
-            .@"break" => return error.BreakInstruction,
+            .ebreak => return error.BreakInstruction,
             .move => write_operand0.* = read_operand0,
             .clear => write_operand0.* = 0,
             .iadd => write_operand0.* = read_operand0 +% read_operand1,

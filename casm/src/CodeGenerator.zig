@@ -362,7 +362,7 @@ pub fn selectInstruction(
     {
         .nullop => {},
         .@"unreachable" => instruction.opcode = .@"unreachable",
-        .@"break" => instruction.opcode = .@"break",
+        .ebreak => instruction.opcode = .ebreak,
         .move => instruction.opcode = .@"move",
         .clear => instruction.opcode = .@"clear",
         .read8 => instruction.opcode = .@"read8",
