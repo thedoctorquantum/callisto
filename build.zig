@@ -61,6 +61,7 @@ pub fn build(builder: *std.build.Builder) void
     cdebug.install();
     cdebug.addPackage(packages.clap);
     cdebug.addPackage(packages.callisto);
+    cdebug.linkLibC();
 
     const callisto_run_cmd = callisto.run();
 

@@ -377,48 +377,16 @@ fn run() !void
 
             while (true)
             {
-                var exit_value = vm.execute(module_instance, .bounded, 20);
-                
-                if (exit_value)
-                {
-                    break;
-                }
-                else |e| 
+                vm.execute(module_instance, .unbounded, 0) catch |e|
                 {
                     switch (e)
                     {
-                        error.BreakInstruction => {
-                            std.debug.print("> ", .{});
-
-                            const command = block: while (true)
-                            {
-                                if (readDebuggerCommand()) |read_command|
-                                {
-                                    break: block read_command;
-                                }
-                            };
-
-                            switch (command)
-                            {
-                                .cont => {
-                                    continue;
-                                },
-                                .stop => {
-                                    return;
-                                },
-                                .show_ctx => {
-                                    std.debug.print("   Registers: \n", .{});
-
-                                    for (vm.registers) |register_value, register|
-                                    {
-                                        std.debug.print("       r{}: {x}\n", .{ register, register_value });
-                                    }
-                                },
-                            }
-                        },
-                        else => return e
-                    }
-                }
+                        error.BreakInstruction => continue,
+                        else => return e,
+                    }  
+                };
+                
+                break;
             }
         }
 

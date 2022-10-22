@@ -166,10 +166,6 @@ pub const FlatOpCode = enum(u8)
     @"return",
 };
 
-comptime {
-    // @compileLog(std.enums.values(FlatOpCode).len);
-}
-
 pub const OpCode = enum(u8) 
 {
     nullop,
@@ -278,27 +274,12 @@ pub const InstructionHeader = packed struct(u16)
     immediate_size: OperandAddressingSize,
 };
 
-//There are 4 operand registers available to instructions
-//ro0: readonly_0; (64 bits) (register or immediate)
-//ro1: readonly_1; (64 bits) (register or immediate)
-//rw0: writeonly_0; (64 bits) (register)
 pub const OperandPack = packed struct(u16)
 {
-    read_operand: Register = .c0, //readonly register 1
-    write_operand: Register = .c0, //writeonly register 1
-    read_operand1: Register = .c0, //readonly register 2
-    write_operand1: Register = .c0, //writeonly register 2
-
-    //optimization for storing 1 byte immediates
-    // operand1: packed union 
-    // { 
-    //     immediate: u8, 
-    //     registers: packed struct(u8) 
-    //     { 
-    //         read: Register = .c0, 
-    //         write: Register = .c0,
-    //     } 
-    // } = .{ .immediate = 0, },
+    read_operand: Register = .c0,
+    write_operand: Register = .c0,
+    read_operand1: Register = .c0,
+    write_operand1: Register = .c0,
 };
 
 pub const NativeProcedure = fn (registers: *[16]u64, data_stack_pointer: [*]align(8) u8) void;
@@ -335,6 +316,27 @@ pub const ExecuteMode = union(enum)
     unbounded,
     bounded
 };
+
+pub const CallFrame = struct
+{
+    return_pointer: [*]align(2) const u8,
+    registers: [8]u64,
+};
+
+//Should implement setjmp/longjump in inline asm instead of linking to libc dynamically
+const jump_buf = extern struct { a: c_int, b: c_int, c: c_int, d: c_int, e: c_int, f: c_int }; 
+
+extern "c" fn setjmp(buf: *jump_buf) callconv(.C) c_int;
+extern "c" fn longjmp(buf: *jump_buf, _: c_int) callconv(.C) void;
+
+fn segfaultHandler(_: c_int) callconv(.C) void
+{
+    longjmp(&segfault_jump_buf, 1);
+
+    unreachable;
+}
+
+var segfault_jump_buf: jump_buf = undefined;
 
 pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: ExecuteMode, bound: if (mode == .bounded) u32 else void) ExecuteError!void 
 {
@@ -431,8 +433,6 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
                 }
 
                 write_operand0 = &self.registers[@enumToInt(register_operands.write_operand)];
-
-                // std.log.info("Operands: {s}, {}", .{ @tagName(register_operands.write_operand), read_operand0 });
             },
             .write_register_immediate_immediate => {
                 unreachable;
@@ -463,8 +463,6 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
 
                 write_operand0 = &self.registers[@enumToInt(register_operands.write_operand)];
                 read_operand1 = self.registers[@enumToInt(register_operands.read_operand)];
-
-                // std.log.info("Operands: {s}, {}, {}", .{ @tagName(register_operands.write_operand), read_operand0, read_operand1 });
             },
             .write_register_read_register_immediate => {
                 const register_operands = @ptrCast(*const OperandPack, self.instruction_pointer).*;
@@ -492,8 +490,6 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
 
                 write_operand0 = &self.registers[@enumToInt(register_operands.write_operand)];
                 read_operand0 = self.registers[@enumToInt(register_operands.read_operand)];
-
-                // std.log.info("Operands: {s}, {s}, {}", .{ @tagName(register_operands.write_operand), @tagName(register_operands.read_operand), read_operand1 });
             },
             .read_register => { unreachable; },
             .read_register_read_register => { unreachable; },
@@ -522,8 +518,6 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
                 }
 
                 read_operand0 = self.registers[@enumToInt(register_operands.read_operand)];
-
-                // std.log.info("Operands: {s}, {}", .{ @tagName(register_operands.read_operand), read_operand1 });
             },
             .immediate => {
                 switch (instruction_header.immediate_size)
@@ -545,8 +539,6 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
                         self.instruction_pointer += @sizeOf(u64);
                     },
                 }
-
-                // std.log.info("Operand: {}", .{ read_operand0 });
             },
             .immediate_immediate => {
                 switch (instruction_header.immediate_size)
@@ -581,8 +573,6 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
             _ => unreachable,
         }
 
-        std.log.info("{s}", .{ @tagName(instruction_header.opcode) });
-
         //Dispatch/Execution
         switch (instruction_header.opcode)
         {
@@ -614,8 +604,6 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
             .read32 => unreachable,
             .read64 => unreachable,
             .write8 => {
-                std.log.info("*reg = {}", .{ read_operand0 });
-
                 @intToPtr(*allowzero u8, read_operand0).* = @truncate(u8, read_operand1);
             },
             .write16 => unreachable,
@@ -665,24 +653,3 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
         }
     }
 } 
-
-pub const CallFrame = struct
-{
-    return_pointer: [*]align(2) const u8,
-    registers: [8]u64,
-};
-
-//Should implement setjmp/longjump in inline asm instead of linking to libc dynamically
-const jump_buf = extern struct { a: c_int, b: c_int, c: c_int, d: c_int, e: c_int, f: c_int }; 
-
-extern "c" fn setjmp(buf: *jump_buf) callconv(.C) c_int;
-extern "c" fn longjmp(buf: *jump_buf, _: c_int) callconv(.C) void;
-
-fn segfaultHandler(_: c_int) callconv(.C) void
-{
-    longjmp(&segfault_jump_buf, 1);
-
-    unreachable;
-}
-
-var segfault_jump_buf: jump_buf = undefined;
