@@ -34,6 +34,7 @@ entry proc main
     a7 = move exit;
 
 exit:
+    ebreak;
     return;
 }
 
@@ -46,25 +47,45 @@ proc fmadd {
 }
 
 /* print function */
-proc print {
+export proc print {
+    a0 = move 10;
+    call alloc; //-> a7
+
+    c7 = move a7;
+
+    //write "HELLO!" to *c7
+    write8 c7, 'h';
+    c7 = iadd 1, c7;
+    write8 c7, 'e';
+    c7 = iadd 1, c7;
+    write8 c7, 'l';
+    c7 = iadd 1, c7;
+    write8 c7, 'l';
+    c7 = iadd 1, c7;
+    write8 c7, 'o';
+    c7 = iadd 1, c7;
+    write8 c7, '!';
+    c7 = iadd 1, c7;
+
+    c7 = isub a7, c7;
+
+    a0 = move a7;
+    a1 = move 6;
     call puts;
 
-    loop: {
+    loop: { 
         if: /* c0 == 100 */ {
-            c1 = eql c0, 100;
+            c1 = neql c0, 10;
             c0 = iadd c0, 1;
+            ebreak;
             jumpif c1, loop;
         } else: {
-            //doee something at the end of the loop idk
+            //do something at the end of the loop idk
         }
     }
 
-    jump end; //testing dead code elim
-    nullop; //dead code
-    nullop;
-    nullop;
-end:
-    return;
+    end:
+        return;
 }
 
 export proc recurse {

@@ -51,19 +51,19 @@ pub fn sizeInstruction(instruction: Instruction) usize
 
                 if (immediate <= std.math.maxInt(u8))
                 {
-                    immediate_sizes[i + 1] = @sizeOf(u16);
+                    immediate_sizes[i] = @sizeOf(u16);
                 }
                 else if (immediate > std.math.maxInt(u8) and immediate <= std.math.maxInt(u16))
                 {
-                    immediate_sizes[i + 1] = @sizeOf(u16);
+                    immediate_sizes[i] = @sizeOf(u16);
                 }
                 else if (immediate > std.math.maxInt(u16) and immediate <= std.math.maxInt(u32))
                 {
-                    immediate_sizes[i + 1] = @sizeOf(u32);
+                    immediate_sizes[i] = @sizeOf(u32);
                 }
                 else
                 {
-                    immediate_sizes[i + 1] = @sizeOf(u64);
+                    immediate_sizes[i] = @sizeOf(u64);
                 }
             },
             .instruction_index => {

@@ -22,6 +22,14 @@ const packages = struct
             callisto
         },
     };
+
+    const cdebug = std.build.Pkg {
+        .name = "cdebug",
+        .source = .{ .path = "cdebug/src/main.zig" },
+        .dependencies = &.{
+
+        },
+    };
 };
 
 pub fn build(builder: *std.build.Builder) void 
@@ -45,6 +53,14 @@ pub fn build(builder: *std.build.Builder) void
     casm.install();
     casm.addPackage(packages.clap);
     casm.addPackage(packages.callisto);
+
+    const cdebug = builder.addExecutable("cdebug", "cdebug/src/main.zig");
+
+    cdebug.setTarget(target);
+    cdebug.setBuildMode(mode);
+    cdebug.install();
+    cdebug.addPackage(packages.clap);
+    cdebug.addPackage(packages.callisto);
 
     const callisto_run_cmd = callisto.run();
 

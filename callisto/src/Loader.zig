@@ -62,8 +62,6 @@ pub fn load(allocator: std.mem.Allocator, module: Module) !ModuleInstance
         module_instance.data = try allocator.dupe(u8, data);
     }
 
-    try Vm.execute(module_instance, module.entry_point);
-
     return module_instance;
 } 
 
