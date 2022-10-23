@@ -1,35 +1,24 @@
 const Shell = @This();
 const std = @import("std");
 const callisto = @import("callisto");
+const Debugger = @import("Debugger.zig");
 
 allocator: std.mem.Allocator,
 stdout_allocator: std.mem.Allocator,
-execution_context: ExecutionContext,
+debugger: Debugger = undefined,
 
-const ExecutionContext = struct 
+pub fn init(self: *Shell) void 
 {
-    vm: callisto.Vm,
-    module: callisto.Module,
-    module_instance: callisto.Loader.ModuleInstance,
-    module_name: []const u8,
-
-    break_points: std.ArrayListUnmanaged(BreakPoint),
-
-    pub const BreakPoint = struct
-    {
-        address: u32,
-        original_opcode: callisto.Vm.OpCode,
-    };
-};
-
-pub fn init(self: Shell) void 
-{
-    _ = self;
+    self.debugger.allocator = self.allocator;
+    self.debugger.break_points = .{};
+    self.debugger.init();
 }
 
-pub fn deinit(self: Shell) void 
+pub fn deinit(self: *Shell) void 
 {
-    _ = self;
+    self.debugger.deinit();
+
+    self.* = undefined;
 }
 
 pub fn print(self: Shell, comptime format: []const u8, args: anytype) void 
@@ -116,71 +105,30 @@ pub const commands = struct
             const module_bytes = try file.readToEndAlloc(shell.allocator, std.math.maxInt(u32));
             defer shell.allocator.free(module_bytes);
 
-            shell.execution_context.module = try callisto.Module.decode(shell.allocator, module_bytes);
-            shell.execution_context.module_name = module_path;
+            shell.debugger.module = try callisto.Module.decode(shell.allocator, module_bytes);
+            shell.debugger.module_name = module_path;
 
-            shell.execution_context.module_instance = try callisto.Loader.load(shell.allocator, shell.execution_context.module);
+            shell.debugger.module_instance = try callisto.Loader.load(shell.allocator, shell.debugger.module);
 
-            shell.execution_context.vm.bind(shell.execution_context.module_instance, shell.execution_context.module.entry_point);
-            shell.execution_context.break_points = .{};
+            shell.debugger.vm.bind(shell.debugger.module_instance, shell.debugger.module.entry_point);
+            shell.debugger.break_points = .{};
         }
 
         pub fn @"continue"(shell: *Shell) !void 
         {
-            const result = shell.execution_context.vm.execute(shell.execution_context.module_instance, .unbounded, 0);
+            const step_result = try shell.debugger.step();
 
-            if (result.trap) |trap|
-            {
-                switch (trap)
-                {
-                    .break_instruction => {
-                        const instructions_begin = @ptrCast([*]align(2) u8, shell.execution_context.module_instance.instructions.ptr);
-                        
-                        const address = @ptrToInt(result.last_instruction) - @ptrToInt(instructions_begin);
+            _ = step_result;
 
-                        var original_opcode: ?callisto.Vm.OpCode = null;
+            shell.print("Hit breakpoint at 0x{x}\n", .{ 0x69 });
 
-                        const is_user_made: bool = block: {
-                            for (shell.execution_context.break_points.items) |break_point|
-                            {
-                                if (break_point.address == address)
-                                {
-                                    original_opcode = break_point.original_opcode;
-
-                                    break :block true;
-                                }
-                            }
-
-                            break :block false;
-                        };
-
-                        if (is_user_made)
-                        {
-                            const instruction_code_point: *u16 = @ptrCast(*u16, result.last_instruction);
-
-                            const current_header = @ptrCast(*callisto.Vm.InstructionHeader, instruction_code_point);
-
-                            current_header.opcode = original_opcode.?;
-
-                            shell.execution_context.vm.instruction_pointer = result.last_instruction;
-
-                            _ = shell.execution_context.vm.execute(shell.execution_context.module_instance, .bounded, 1);
-
-                            current_header.opcode = .ebreak;
-                        }
-
-                        shell.print("Hit breakpoint at 0x{x}\n", .{ address });
-                    },
-                    else => return error.ErrorTrap,
-                }
-            }
         }
 
         pub fn show_registers(shell: Shell) void
         {
             shell.print("   Registers: \n", .{});
 
-            for (shell.execution_context.vm.registers) |register_value, register|
+            for (shell.debugger.vm.registers) |register_value, register|
             {
                 shell.print("       r{}: {x}\n", .{ register, register_value });
             }
@@ -188,78 +136,27 @@ pub const commands = struct
 
         pub fn @"break"(shell: *Shell, address: u32) !void
         {
-            if (address % 2 != 0)
-            {
-                return error.InvalidAddress;
-            }
-
-            if (address > shell.execution_context.module_instance.instructions.len * 2)
-            {
-                return error.InvalidAddress;
-            }
-
             shell.print("breaking at address: 0x{x}\n", .{ address });
 
-            const old_header = @bitCast(callisto.Vm.InstructionHeader, shell.execution_context.module_instance.instructions[address / 2]);
-
-            shell.execution_context.module_instance.instructions[address / 2] = @bitCast(u16, 
-                callisto.Vm.InstructionHeader
-                {
-                    .opcode = .ebreak,
-                    .operand_layout = old_header.operand_layout,
-                    .operand_size = old_header.operand_size,
-                    .immediate_size = old_header.immediate_size,
-                }
-            );
-
-            try shell.execution_context.break_points.append(shell.allocator, .{
-                .address = address,
-                .original_opcode = old_header.opcode,
-            });
+            try shell.debugger.setBreakPoint(address);
         }
 
         pub fn unbreak(shell: *Shell, address: u32) !void
         {
-            if (address % 2 != 0)
-            {
-                return error.InvalidAddress;
-            }
-
-            if (address > shell.execution_context.module_instance.instructions.len * 2)
-            {
-                return error.InvalidAddress;
-            }
-
-            var break_point_index: usize = 0;
-
-            const is_user_made: bool = block: {
-                for (shell.execution_context.break_points.items) |break_point, i|
-                {
-                    if (break_point.address == address)
-                    {
-                        break_point_index = i;
-
-                        break :block true;
-                    }
-                }
-
-                break :block false;
-            };
-
-            if (!is_user_made)
-            {
-                shell.print("Instruction {} is not a user made breakpoint\n", .{ address });
-
-                return error.NotUserMade;
-            }
-
             shell.print("unbreaking at address: 0x{x}\n", .{ address });
 
-            const break_point = shell.execution_context.break_points.swapRemove(break_point_index);
+            shell.debugger.unsetBreakPoint(address) catch |e|
+            {
+                switch (e)
+                {
+                    error.NotUserMade => {
+                        shell.print("Instruction {} is not a user made breakpoint\n", .{ address });
+                    },
+                    else => {},
+                }
 
-            const header = @ptrCast(*callisto.Vm.InstructionHeader, shell.execution_context.module_instance.instructions.ptr + break_point.address);
-
-            header.opcode = break_point.original_opcode; 
+                return e;
+            };
         }
     };
 };

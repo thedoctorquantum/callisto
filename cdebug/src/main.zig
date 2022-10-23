@@ -2,6 +2,7 @@ const std = @import("std");
 const clap = @import("clap");
 const callisto = @import("callisto");
 
+pub const Debugger = @import("Debugger.zig");
 pub const Shell = @import("Shell.zig");
 
 pub usingnamespace if (@import("root") == @This()) struct {
@@ -57,8 +58,10 @@ fn run() !void
     {
         .allocator = allocator,
         .stdout_allocator = stdout_allocator.get(),
-        .execution_context = undefined,
     };
+
+    shell.init();
+    defer shell.deinit();
 
     while (true)
     {
