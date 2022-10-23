@@ -296,14 +296,14 @@ pub const ExecuteTrap = enum(u8)
     memory_access_violation,
 };
 
-instruction_pointer: [*]align(2) const u8 = undefined,
+instruction_pointer: [*]align(2) u8 = undefined,
 data_stack_pointer: [*]u64 = undefined,
 call_stack_pointer: [*]Vm.CallFrame = undefined,
 registers: [16]u64 = std.mem.zeroes([16]u64),
 
 pub fn bind(self: *@This(), module: Loader.ModuleInstance, address: usize) void
 {
-    const instructions_begin: [*]align(2) const u8 = @ptrCast([*]const u8, module.instructions.ptr);
+    const instructions_begin: [*]align(2) u8 = @ptrCast([*]u8, module.instructions.ptr);
 
     self.instruction_pointer = @alignCast(@alignOf(u16), instructions_begin + address);
 
@@ -319,7 +319,7 @@ pub const ExecuteMode = union(enum)
 
 pub const CallFrame = struct
 {
-    return_pointer: [*]align(2) const u8,
+    return_pointer: [*]align(2) u8,
     registers: [8]u64,
 };
 
@@ -341,7 +341,7 @@ var segfault_jump_buf: jump_buf = undefined;
 pub const ExecuteResult = struct 
 {
     trap: ?ExecuteTrap = null,
-    last_instruction: [*]align(@alignOf(u16)) const u8
+    last_instruction: [*]align(@alignOf(u16)) u8
 };
 
 pub fn execute(
@@ -370,7 +370,7 @@ pub fn execute(
         };
     }
 
-    const instructions_begin: [*]align(2) const u8 = @ptrCast([*]const u8, module.instructions.ptr);
+    const instructions_begin: [*]align(2) u8 = @ptrCast([*]u8, module.instructions.ptr);
 
     var instruction_count: if (mode == .bounded) u32 else void = undefined;
 
