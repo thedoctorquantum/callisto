@@ -284,16 +284,16 @@ pub const OperandPack = packed struct(u16)
 
 pub const NativeProcedure = fn (registers: *[16]u64, data_stack_pointer: [*]align(8) u8) void;
 
-pub const ExecuteError = error 
+pub const ExecuteTrap = enum(u8) 
 {
-    InvalidOpcode,
-    IllegalInstructionAccess,
-    UnreachableInstruction,
-    BreakInstruction,
-    DivisionByZero,
-    StackOverflow,
-    StackUnderflow,
-    MemoryAccessViolation,
+    invalid_opcode,
+    illegal_instruction_access,
+    unreachable_instruction,
+    break_instruction,
+    division_by_zero,
+    stack_overflow,
+    stack_underflow,
+    memory_access_violation,
 };
 
 instruction_pointer: [*]align(2) const u8 = undefined,
@@ -338,7 +338,18 @@ fn segfaultHandler(_: c_int) callconv(.C) void
 
 var segfault_jump_buf: jump_buf = undefined;
 
-pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: ExecuteMode, bound: if (mode == .bounded) u32 else void) ExecuteError!void 
+pub const ExecuteResult = struct 
+{
+    trap: ?ExecuteTrap = null,
+    last_instruction: [*]align(@alignOf(u16)) const u8
+};
+
+pub fn execute(
+    self: *@This(), 
+    module: Loader.ModuleInstance, 
+    comptime mode: ExecuteMode, 
+    bound: if (mode == .bounded) u32 else void
+    ) ExecuteResult
 {
     @setRuntimeSafety(false);
 
@@ -353,7 +364,10 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
 
     if (setjmp(&segfault_jump_buf) != 0)
     {
-        return error.MemoryAccessViolation;
+        return .{
+            .trap = .memory_access_violation,
+            .last_instruction = undefined,
+        };
     }
 
     const instructions_begin: [*]align(2) const u8 = @ptrCast([*]const u8, module.instructions.ptr);
@@ -362,6 +376,8 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
 
     while (true)
     {
+        const instruction_begin = self.instruction_pointer;
+
         const instruction_header = @ptrCast(*const InstructionHeader, self.instruction_pointer).*;
 
         self.instruction_pointer += @sizeOf(InstructionHeader);
@@ -373,7 +389,9 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
                 
                 if (instruction_count == bound)
                 {
-                    return;
+                    return .{
+                        .last_instruction = instruction_begin,
+                    };
                 }
             },
             else => {},
@@ -577,8 +595,14 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
         switch (instruction_header.opcode)
         {
             .nullop => {},
-            .@"unreachable" => return error.UnreachableInstruction,
-            .ebreak => return error.BreakInstruction,
+            .@"unreachable" => return .{
+                .trap = .unreachable_instruction,
+                .last_instruction = instruction_begin,
+            },
+            .ebreak => return .{
+                .trap = .break_instruction,
+                .last_instruction = instruction_begin,
+            },
             .move => write_operand0.* = read_operand0,
             .clear => write_operand0.* = 0,
             .iadd => write_operand0.* = read_operand0 +% read_operand1,
@@ -620,7 +644,10 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
             {
                 if (@ptrToInt(self.call_stack_pointer) >= @ptrToInt(module.call_stack.ptr + module.call_stack.len))
                 {
-                    return error.StackOverflow;
+                    return .{
+                        .trap = .stack_overflow,
+                        .last_instruction = instruction_begin,
+                    };
                 }
 
                 self.call_stack_pointer[0].return_pointer = self.instruction_pointer;
@@ -635,7 +662,9 @@ pub fn execute(self: *@This(), module: Loader.ModuleInstance, comptime mode: Exe
             {
                 if (self.call_stack_pointer == module.call_stack.ptr)
                 {
-                    return;
+                    return .{ 
+                        .last_instruction = instruction_begin
+                    };
                 }
                 
                 self.call_stack_pointer -= 1;

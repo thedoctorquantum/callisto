@@ -71,6 +71,15 @@ const ExecutionContext = struct
     module: callisto.Module,
     module_instance: callisto.Loader.ModuleInstance,
     module_name: []const u8,
+
+    break_points: std.ArrayListUnmanaged(BreakPoint),
+    break_point_instructions: std.ArrayListUnmanaged(u16),
+
+    pub const BreakPoint = struct
+    {
+        address: u32,
+        original_opcode: callisto.Vm.OpCode,
+    };
 };
 
 var gpa_allocator: std.mem.Allocator = undefined;
@@ -78,6 +87,66 @@ var execution_context: ExecutionContext = undefined;
 
 const commands = struct 
 {
+    pub fn help() void 
+    {
+        std.debug.print("\nCommands:\n", .{});
+        defer std.debug.print("\n", .{});
+
+        printHelp(commands);
+    } 
+
+    fn printHelp(comptime namespace: type) void 
+    {
+        const decls = @typeInfo(namespace).Struct.decls;
+
+        inline for (decls) |decl|
+        {
+            if (!decl.is_pub) continue;
+
+            const decl_value = @field(namespace, decl.name);
+
+            if (@TypeOf(decl_value) == type)
+            {
+                printHelp(decl_value);
+            }
+            else 
+            {
+                const name = (@typeName(namespace) ++ "." ++ decl.name)[("main.commands.").len..];
+
+                std.debug.print("   " ++ name, .{});
+
+                const fn_info = @typeInfo(@TypeOf(decl_value)).Fn;
+
+                if (fn_info.args.len != 0)
+                {
+                    std.debug.print(":", .{});
+                }
+
+                inline for (fn_info.args) |arg, i|
+                {
+                    std.debug.print(" " ++ @typeName(arg.arg_type.?), .{});
+
+                    if (i < fn_info.args.len - 1)
+                    {
+                        std.debug.print(",", .{});
+                    }
+                }
+
+                std.debug.print("\n", .{});
+            }
+        }
+    }
+
+    pub fn clear() !void 
+    {
+        return error.NotImplemented;
+    }
+
+    pub fn exit() noreturn
+    {
+        std.os.exit(0);
+    } 
+
     pub const module = struct 
     {
         pub fn load(module_path: []const u8) !void 
@@ -96,14 +165,28 @@ const commands = struct
             execution_context.module_instance = try callisto.Loader.load(gpa_allocator, execution_context.module);
 
             execution_context.vm.bind(execution_context.module_instance, execution_context.module.entry_point);
+            execution_context.break_points = .{};
+            execution_context.break_point_instructions = .{};
         }
 
-        pub fn @"continue"() void 
+        pub fn @"continue"() !void 
         {
-            execution_context.vm.execute(execution_context.module_instance, .unbounded, 0) catch |e|
+            const result = execution_context.vm.execute(execution_context.module_instance, .unbounded, 0);
+
+            if (result.trap) |trap|
             {
-                std.debug.print("Module '{s}' returned {}\n", .{ execution_context.module_name, e });
-            };
+                switch (trap)
+                {
+                    .break_instruction => {
+                        const instructions_begin = @ptrCast([*]align(2) u8, execution_context.module_instance.instructions.ptr);
+                        
+                        const address = @ptrToInt(result.last_instruction) - @ptrToInt(instructions_begin);
+
+                        std.debug.print("Hit breakpoint at 0x{x}\n", .{ address });
+                    },
+                    else => return error.ErrorTrap,
+                }
+            }
         }
 
         pub fn show_registers() void
@@ -116,9 +199,36 @@ const commands = struct
             }
         }
 
-        pub fn @"break"(address: u32) void
+        pub fn @"break"(address: u32) !void
         {
-            std.log.info("breaking at address: {x}", .{ address });
+            if (address % 2 != 0)
+            {
+                return error.InvalidAddress;
+            }
+
+            if (address > execution_context.module_instance.instructions.len * 2)
+            {
+                return error.InvalidAddress;
+            }
+
+            std.log.info("breaking at address: 0x{x}", .{ address });
+
+            const old_header = @bitCast(callisto.Vm.InstructionHeader, execution_context.module_instance.instructions[address / 2]);
+
+            execution_context.module_instance.instructions[address / 2] = @bitCast(u16, 
+                callisto.Vm.InstructionHeader
+                {
+                    .opcode = .ebreak,
+                    .operand_layout = old_header.operand_layout,
+                    .operand_size = old_header.operand_size,
+                    .immediate_size = old_header.immediate_size,
+                }
+            );
+
+            try execution_context.break_points.append(gpa_allocator, .{
+                .address = address,
+                .original_opcode = old_header.opcode,
+            });
         }
     };
 };
@@ -172,7 +282,7 @@ fn parseCommand(source: []const u8) !void
                         argument_count += 1;
                     },
                     .literal_hex => {
-                        arguments[argument_count] = .{ .integer = try std.fmt.parseInt(u64, tokenizer.string(token), 16) };
+                        arguments[argument_count] = .{ .integer = try std.fmt.parseInt(u64, tokenizer.string(token), 0) };
                         argument_count += 1;
                     },
                     else => unreachable,
@@ -202,16 +312,24 @@ fn parseCommand(source: []const u8) !void
         else => {}
     }
 
-    std.log.info("command_name: {s}", .{ tokenizer.source[command_name_start..command_name_end] });
+    const command_name = tokenizer.source[command_name_start..command_name_end];
+    const executed = try dispatchCommand(commands, command_name, arguments[0..argument_count]);
 
-    try dispatchCommand(commands, tokenizer.source[command_name_start..command_name_end], arguments[0..argument_count]);
+    if (!executed)
+    {
+        std.debug.print("Could not find command '{s}'\n", .{ command_name });
+
+        return error.InvalidCommand;
+    }
 } 
 
-fn dispatchCommand(comptime namespace: type, command_name: []const u8, arguments: []const CommandParam) !void
+fn dispatchCommand(comptime namespace: type, command_name: []const u8, arguments: []const CommandParam) !bool
 {
     const procedure_base_name = "main.commands.";
 
     const decls = @typeInfo(namespace).Struct.decls; 
+
+    var executed: bool = false;
 
     inline for (decls) |decl|
     {
@@ -224,7 +342,7 @@ fn dispatchCommand(comptime namespace: type, command_name: []const u8, arguments
         {
             switch (@typeInfo(decl_value))
             {
-                .Struct => try dispatchCommand(decl_value, command_name, arguments),
+                .Struct => executed = try dispatchCommand(decl_value, command_name, arguments) or executed,
                 else => unreachable,
             }
         }
@@ -268,11 +386,18 @@ fn dispatchCommand(comptime namespace: type, command_name: []const u8, arguments
                     .ErrorUnion => {
                         _ = try @call(.{}, decl_value, args);
                     },
-                    else => unreachable,
+                    .NoReturn => {
+                        @call(.{}, decl_value, args);
+                    },
+                    else => comptime unreachable,
                 }
+
+                executed = true;
             }
         }
     }
+
+    return executed;
 }
 
 pub const Tokenizer = struct 
@@ -347,7 +472,10 @@ pub const Tokenizer = struct
                     switch (char) 
                     {
                         'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
-                        else => break,
+                        else => {
+                            self.index += 1;
+                            break;
+                        },
                     }
                 },
                 .literal_string => {
@@ -367,7 +495,7 @@ pub const Tokenizer = struct
                 .literal_hex => {
                     switch (char) 
                     {
-                        '0'...'9', 'a'...'b', 'A'...'B', '_' => {},
+                        '0'...'9', 'a'...'f', 'A'...'F', '_' => {},
                         else => break,
                     }
                 },
@@ -386,7 +514,7 @@ pub const Tokenizer = struct
 
     pub fn prev(self: *@This(), token: Token) void 
     {
-        self.index -= token.end - token.start;
+        self.index = token.start;
     }
 
     pub fn eat(self: *@This(), tag: Token.Tag) ?Token

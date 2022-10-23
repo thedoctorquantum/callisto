@@ -377,15 +377,19 @@ fn run() !void
 
             while (true)
             {
-                vm.execute(module_instance, .unbounded, 0) catch |e|
+                const result = vm.execute(module_instance, .unbounded, 0);
+
+                if (result.trap) |trap|
                 {
-                    switch (e)
+                    switch (trap)
                     {
-                        error.BreakInstruction => continue,
-                        else => return e,
-                    }  
-                };
-                
+                        .break_instruction => {
+                            continue;
+                        },
+                        else => return error.ErrorTrap,
+                    }
+                }
+
                 break;
             }
         }
