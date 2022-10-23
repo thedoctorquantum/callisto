@@ -47,61 +47,19 @@ pub const FlatOpCode = enum(u8)
     write64_ir,
     write64_ii,
 
-    i64_add_rr,
-    i64_add_ri,
+    iadd_rr,
+    iadd_ri,
 
-    i64_sub_rr,
-    i64_sub_ri,
-    i64_sub_ir,
+    isub_rr,
+    isub_ri,
+    isub_ir,
 
-    i64_mul_rr,
-    i64_mul_ri,
+    imul_rr,
+    imul_ri,
 
-    i64_div_rr,
-    i64_div_ri,
-    i64_div_ir,
-
-    i32_add_rr,
-    i32_add_ri,
-
-    i32_sub_rr,
-    i32_sub_ri,
-    i32_sub_ir,
-
-    i32_mul_rr,
-    i32_mul_ri,
-
-    i32_div_rr,
-    i32_div_ri,
-    i32_div_ir,
-
-    i16_add_rr,
-    i16_add_ri,
-
-    i16_sub_rr,
-    i16_sub_ri,
-    i16_sub_ir,
-
-    i16_mul_rr,
-    i16_mul_ri,
-
-    i16_div_rr,
-    i16_div_ri,
-    i16_div_ir,
-
-    i8_add_rr,
-    i8_add_ri,
-
-    i8_sub_rr,
-    i8_sub_ri,
-    i8_sub_ir,
-
-    i8_mul_rr,
-    i8_mul_ri,
-
-    i8_div_rr,
-    i8_div_ri,
-    i8_div_ir,
+    idiv_rr,
+    idiv_ri,
+    idiv_ir,
 
     islt,
     isgt,
@@ -172,14 +130,14 @@ pub const OpCode = enum(u8)
     @"unreachable",
     move,
     clear,
-    read8,
-    read16,
-    read32,
-    read64,
-    write8,
-    write16,
-    write32,
-    write64,
+    load8,  //load8
+    load16, //load16
+    load32, //load32
+    load64, //load64
+    store8, //store8
+    store16,//store16
+    store32,//store32
+    store64,//store64
     iadd,
     isub,
     imul,
@@ -623,16 +581,16 @@ pub fn execute(
             },
             .push => unreachable,
             .pop => unreachable,
-            .read8 => unreachable,
-            .read16 => unreachable,
-            .read32 => unreachable,
-            .read64 => unreachable,
-            .write8 => {
+            .load8 => unreachable,
+            .load16 => unreachable,
+            .load32 => unreachable,
+            .load64 => unreachable,
+            .store8 => {
                 @intToPtr(*allowzero u8, read_operand0).* = @truncate(u8, read_operand1);
             },
-            .write16 => unreachable,
-            .write32 => unreachable,
-            .write64 => unreachable,
+            .store16 => unreachable,
+            .store32 => unreachable,
+            .store64 => unreachable,
             .jump => self.instruction_pointer = @ptrCast(@TypeOf(self.instruction_pointer), @alignCast(2, instructions_begin + read_operand0)),
             .jumpif => {
                 if (read_operand0 == 1)

@@ -54,17 +54,17 @@ export proc print {
     c7 = move a7;
 
     //write "HELLO!" to *c7
-    write8 c7, 'h';
+    store8 c7, 'h';
     c7 = iadd 1, c7;
-    write8 c7, 'e';
+    store8 c7, 'e';
     c7 = iadd 1, c7;
-    write8 c7, 'l';
+    store8 c7, 'l';
     c7 = iadd 1, c7;
-    write8 c7, 'l';
+    store8 c7, 'l';
     c7 = iadd 1, c7;
-    write8 c7, 'o';
+    store8 c7, 'o';
     c7 = iadd 1, c7;
-    write8 c7, '!';
+    store8 c7, '!';
     c7 = iadd 1, c7;
 
     c7 = isub a7, c7;
@@ -77,7 +77,7 @@ export proc print {
         if: /* c0 == 100 */ {
             c1 = neql c0, 10;
             c0 = iadd c0, 1;
-            ebreak;
+            //ebreak;
             jumpif c1, loop;
         } else: {
             //do something at the end of the loop idk

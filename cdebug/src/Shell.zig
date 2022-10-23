@@ -118,10 +118,17 @@ pub const commands = struct
         {
             const step_result = try shell.debugger.step();
 
-            _ = step_result;
-
-            shell.print("Hit breakpoint at 0x{x}\n", .{ 0x69 });
-
+            switch (step_result)
+            {
+                .termination => 
+                {
+                    shell.print("Module thread '{s}' terminated\n", .{ shell.debugger.module_name });
+                },
+                .break_point => |break_point| 
+                {
+                    shell.print("Hit breakpoint at 0x{x}\n", .{ break_point.address });
+                },
+            }
         }
 
         pub fn show_registers(shell: Shell) void

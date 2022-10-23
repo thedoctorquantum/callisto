@@ -16,9 +16,9 @@ pub const BreakPoint = struct
     original_opcode: callisto.Vm.OpCode,
 };
 
-pub fn init(self: Debugger) void 
+pub fn init(self: *Debugger) void 
 {
-    _ = self;
+    self.vm = .{};
 }
 
 pub fn deinit(self: *Debugger) void
@@ -41,7 +41,7 @@ pub const StepResult = union(enum)
 
 pub fn step(self: *Debugger) !StepResult 
 {
-    const result = self.vm.execute(self.module_instance, .unbounded, 0);
+    const result = self.vm.execute(self.module_instance, .unbounded, {});
 
     if (result.trap) |trap|
     {
@@ -108,22 +108,14 @@ pub fn setBreakPoint(self: *Debugger, address: u32) !void
         return error.InvalidAddress;
     }
 
-    const old_header = @bitCast(callisto.Vm.InstructionHeader, self.module_instance.instructions[address / 2]);
-
-    self.module_instance.instructions[address / 2] = @bitCast(u16, 
-        callisto.Vm.InstructionHeader
-        {
-            .opcode = .ebreak,
-            .operand_layout = old_header.operand_layout,
-            .operand_size = old_header.operand_size,
-            .immediate_size = old_header.immediate_size,
-        }
-    );
+    const header = @ptrCast(*callisto.Vm.InstructionHeader, &self.module_instance.instructions[address / 2]);
 
     try self.break_points.append(self.allocator, .{
         .address = address,
-        .original_opcode = old_header.opcode,
+        .original_opcode = header.opcode,
     });
+
+    header.opcode = .ebreak;
 }
 
 pub fn unsetBreakPoint(self: *Debugger, address: u32) !void 
@@ -161,7 +153,7 @@ pub fn unsetBreakPoint(self: *Debugger, address: u32) !void
 
     const break_point = self.break_points.swapRemove(break_point_index);
 
-    const header = @ptrCast(*callisto.Vm.InstructionHeader, self.module_instance.instructions.ptr + break_point.address);
+    const header = @ptrCast(*callisto.Vm.InstructionHeader, &self.module_instance.instructions[break_point.address / 2]);
 
     header.opcode = break_point.original_opcode; 
 }
