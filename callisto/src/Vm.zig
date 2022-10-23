@@ -130,6 +130,7 @@ pub const OpCode = enum(u8)
     @"unreachable",
     move,
     clear,
+    daddr,
     load8,
     load16,
     load32,
@@ -257,6 +258,7 @@ pub const ExecuteTrap = enum(u8)
 instruction_pointer: [*]align(2) u8 = undefined,
 data_stack_pointer: [*]u64 = undefined,
 call_stack_pointer: [*]Vm.CallFrame = undefined,
+data_begin: [*]u8 = undefined,
 registers: [16]u64 = std.mem.zeroes([16]u64),
 
 pub fn bind(self: *@This(), module: Loader.ModuleInstance, address: usize) void
@@ -267,6 +269,7 @@ pub fn bind(self: *@This(), module: Loader.ModuleInstance, address: usize) void
 
     self.data_stack_pointer = module.data_stack.ptr;
     self.call_stack_pointer = module.call_stack.ptr;
+    self.data_begin = module.data.ptr;
 }
 
 pub const ExecuteMode = union(enum)
@@ -581,6 +584,9 @@ pub fn execute(
             },
             .push => unreachable,
             .pop => unreachable,
+            .daddr => {
+                write_operand0.* = @ptrToInt(self.data_begin + read_operand0);
+            },
             .load8 => unreachable,
             .load16 => unreachable,
             .load32 => unreachable,

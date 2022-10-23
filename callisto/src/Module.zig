@@ -153,19 +153,21 @@ pub fn getSectionData(self: @This(), id: Section.Id, index: usize) ?[]u8
     {
         defer offset += section.content_size;
 
+        const alignment = section.content_alignment;
+
+        const aligned_offset = std.mem.alignForward(offset, alignment);
+
         if (section.id == id)
         {
             if (section_type_count == index)
             {
-                const alignment = section.content_alignment;
-
-                const aligned_offset = std.mem.alignForward(offset, alignment);
-
                 return self.sections_content.items[aligned_offset..aligned_offset + section.content_size];
             }
 
             section_type_count += 1;
         }
+
+        offset = aligned_offset;
     }
 
     return null;

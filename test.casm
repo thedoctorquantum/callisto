@@ -12,9 +12,9 @@ import proc puts;
 //entrypoint procedure
 entry proc main 
 {
-    a0 = move other_message;
-    a1 = move other_message_len;
-    call alloc;
+    a0 = daddr message; //daddr
+    a1 = move message_len;
+    call puts;
 
     c0 = clear;
 
@@ -24,6 +24,10 @@ entry proc main
 
         jumpif c1, loop_begin;
     }
+
+    a0 = daddr other_message; //daddr
+    a1 = move other_message_len;
+    call puts;
 
     a7 = move 10;
     a6 = move 0xa3;
@@ -46,31 +50,13 @@ proc fmadd {
     return;
 }
 
+var hello_message = "hello!";
+var hello_message_len = $sizeof(hello_message);
+
 /* print function */
 export proc print {
-    a0 = move 10;
-    call alloc; //-> a7
-
-    c7 = move a7;
-
-    //write "HELLO!" to *c7
-    store8 c7, 'h';
-    c7 = iadd 1, c7;
-    store8 c7, 'e';
-    c7 = iadd 1, c7;
-    store8 c7, 'l';
-    c7 = iadd 1, c7;
-    store8 c7, 'l';
-    c7 = iadd 1, c7;
-    store8 c7, 'o';
-    c7 = iadd 1, c7;
-    store8 c7, '!';
-    c7 = iadd 1, c7;
-
-    c7 = isub a7, c7;
-
-    a0 = move a7;
-    a1 = move 6;
+    a0 = daddr hello_message;
+    a1 = move hello_message_len;
     call puts;
 
     loop: { 

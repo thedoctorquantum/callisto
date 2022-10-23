@@ -51,6 +51,7 @@ pub const Statement = union(enum)
             @"unreachable",
             move,
             clear,
+            daddr,
             load8,
             load16,
             load32,

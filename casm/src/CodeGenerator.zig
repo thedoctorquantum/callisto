@@ -88,7 +88,12 @@ pub fn sizeInstruction(instruction: Instruction) usize
     return @sizeOf(callisto.Vm.InstructionHeader) + registers_size + (immediate_size * immediate_count);
 }
 
-pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruction, instruction_addresses: []const u32) !usize
+pub fn encodeInstruction(
+    code_points: *std.ArrayList(u16), 
+    instruction: Instruction, 
+    instruction_addresses: []const u32,
+    data_points: []const DataPoint
+    ) !usize
 {
     const operand_layout = block: {
         var operand_count: usize = 0;
@@ -333,7 +338,7 @@ pub fn encodeInstruction(code_points: *std.ArrayList(u16), instruction: Instruct
             },
             .data_point_index => |data_point_index|
             {
-                const immediate: u64 = data_point_index;
+                const immediate: u64 = data_points[data_point_index].offset;
 
                 try code_points.appendSlice(@ptrCast([*]const u16, &immediate)[0..@sizeOf(u64) / 2]);
             },
@@ -350,7 +355,8 @@ pub fn selectInstruction(
     ir: IR, 
     instructions: []const Instruction, 
     instruction_statement: IR.Statement.Instruction,
-    instruction_statement_index: IR.StatementIndex
+    instruction_statement_index: IR.StatementIndex,
+    symbol_to_data_point_indices: []u32,
     ) !Instruction
 {
     _ = instructions;
@@ -365,6 +371,7 @@ pub fn selectInstruction(
         .ebreak => instruction.opcode = .ebreak,
         .move => instruction.opcode = .@"move",
         .clear => instruction.opcode = .@"clear",
+        .daddr => instruction.opcode = .daddr, 
         .load8 => instruction.opcode = .load8,
         .load16 => instruction.opcode = .load16,
         .load32 => instruction.opcode = .load32,
@@ -448,8 +455,8 @@ pub fn selectInstruction(
                     .imported_procedure => |procedure| {
                         instruction.read_operands[i] = .{ .immediate = procedure.index };
                     },
-                    .data => |data| {
-                        instruction.read_operands[i] = .{ .data_point_index = data.offset };
+                    .data => {
+                        instruction.read_operands[i] = .{ .data_point_index = symbol_to_data_point_indices[symbol] };
                     },
                     .integer => |integer| {
                         instruction.read_operands[i] = .{ .immediate = integer };
@@ -467,6 +474,7 @@ pub fn generateProcedure(
     ir: IR, 
     instructions: *std.ArrayListUnmanaged(Instruction), 
     block_instruction_indices: []u32,
+    symbol_to_data_point_indices: []u32,
     procedure_index: usize,
     procedure_queue: *std.ArrayListUnmanaged(Procedure),
     ) !void
@@ -537,7 +545,13 @@ pub fn generateProcedure(
                         else => {},
                     }
 
-                    const callisto_instruction = try selectInstruction(ir, instructions.items, instruction, @intCast(u32, i));
+                    const callisto_instruction = try selectInstruction(
+                        ir, 
+                        instructions.items, 
+                        instruction, 
+                        @intCast(u32, i),
+                        symbol_to_data_point_indices
+                    );
 
                     try instructions.append(allocator, callisto_instruction);
                 }
@@ -547,7 +561,7 @@ pub fn generateProcedure(
 
     for (procedure_queue.items[procedure_queue_start..]) |procedure|
     {
-        try generateProcedure(allocator, ir, instructions, block_instruction_indices, procedure.index, procedure_queue);
+        try generateProcedure(allocator, ir, instructions, block_instruction_indices, symbol_to_data_point_indices, procedure.index, procedure_queue);
     }
 }
 
@@ -559,16 +573,28 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
     var data_points = std.ArrayListUnmanaged(DataPoint) {};
     defer data_points.deinit(allocator);
 
-    for (ir.symbol_table.items) |symbol|
+    var preinit_data = std.ArrayListUnmanaged(u8) {};
+    defer preinit_data.deinit(allocator);
+
+    const symbol_to_data_point_indices = try allocator.alloc(u32, ir.symbol_table.items.len);
+    defer allocator.free(symbol_to_data_point_indices);
+
+    for (ir.symbol_table.items) |symbol, i|
     {
         switch (symbol)
         {
             .data => |data|
             {
+                symbol_to_data_point_indices[i] = @intCast(u32, data_points.items.len);
+
+                const offset = preinit_data.items.len;
+
+                try preinit_data.appendSlice(allocator, ir.data.items[data.offset..data.offset + data.size]);
+
                 try data_points.append(allocator, .{
                     .alignment = 1,
                     .size = data.size,
-                    .offset = data.offset,
+                    .offset = @intCast(u32, offset),
                 });
             },
             else => {},
@@ -578,7 +604,7 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
     for (data_points.items) |data_point|
     {
         std.log.info("data: align({}), offset: {}, size: {}", .{ data_point.alignment, data_point.offset, data_point.size });
-    }
+    }    
 
     var procedure_queue = std.ArrayListUnmanaged(Procedure) {};
     defer procedure_queue.deinit(allocator);
@@ -589,7 +615,15 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
     //Should really traverse a DAG (Directed Acyclic Graph) of procedures
     for (ir.entry_points.items) |entry_point|
     {
-        try generateProcedure(allocator, ir, &instructions, block_instruction_indices, entry_point, &procedure_queue);
+        try generateProcedure(
+            allocator, 
+            ir, 
+            &instructions, 
+            block_instruction_indices, 
+            symbol_to_data_point_indices,
+            entry_point, 
+            &procedure_queue
+        );
     }
 
     //Resolve block indices to instruction indices
@@ -633,7 +667,7 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
     for (instructions.items) |instruction, i|
     {
         const code_point_offset = code_points.items.len;
-        const code_point_count = try encodeInstruction(&code_points, instruction, instruction_addresses);
+        const code_point_count = try encodeInstruction(&code_points, instruction, instruction_addresses, data_points.items);
 
         var desired_alignment: usize = 50;
 
@@ -689,7 +723,7 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
                     std.debug.print(" (0x{x})", .{ instruction_addresses[instruction_index] });
                 },
                 .data_point_index => |data_point_index| {
-                    std.debug.print(" (0x{x})", .{ data_point_index });
+                    std.debug.print(" (0x{x})", .{ data_points.items[data_point_index].offset });
                 }
             }
         }
@@ -746,6 +780,8 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
     std.mem.copy(u8, try export_section_fba.allocator().alloc(u8, exported_symbol_text.items.len), exported_symbol_text.items);
 
     _ = try module.addSectionDataAligned(.exports, u8, export_section_data, @alignOf(callisto.Module.ExportSectionHeader));
+
+    _ = try module.addSectionData(.data, u8, preinit_data.items);
 
     return module;
 }
