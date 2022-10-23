@@ -130,14 +130,14 @@ pub const OpCode = enum(u8)
     @"unreachable",
     move,
     clear,
-    load8,  //load8
-    load16, //load16
-    load32, //load32
-    load64, //load64
-    store8, //store8
-    store16,//store16
-    store32,//store32
-    store64,//store64
+    load8,
+    load16,
+    load32,
+    load64,
+    store8,
+    store16,
+    store32,
+    store64,
     iadd,
     isub,
     imul,
@@ -157,9 +157,9 @@ pub const OpCode = enum(u8)
     jump,
     jumpif,
     call,
+    @"return",
     ecall,
     ebreak,
-    @"return",
 
     imp7,
     imp6,

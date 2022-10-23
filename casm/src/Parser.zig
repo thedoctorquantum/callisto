@@ -506,8 +506,10 @@ pub fn parseInstruction(self: *@This()) !void
                     };
                 },
                 .literal_char => {
+                    const char_literal = self.source[self.token_starts[operand_token]..self.token_ends[operand_token]];
+
                     read_operands[read_operand_index] = .{ 
-                        .immediate = self.token_starts[operand_token]
+                        .immediate = char_literal[1]
                     };
                 },
                 .argument_register => {

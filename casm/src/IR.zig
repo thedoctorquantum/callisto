@@ -43,7 +43,7 @@ pub const Statement = union(enum)
 
         ///Not the same as an opcode,
         ///this is describes a pseudo operation
-        ///Not a 1:1 ratio with actual zyte instructions
+        ///Not a 1:1 ratio with actual callisto instructions
         ///Eg: call print -> ecall print or call print; 
         pub const Operation = enum 
         {
