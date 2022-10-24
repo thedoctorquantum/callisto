@@ -257,6 +257,9 @@ fn run() !void
         const out_file = std.fs.cwd().openFile(out_module_file_path, .{ .mode = .read_write }) catch try std.fs.cwd().createFile(out_module_file_path, .{});
         defer out_file.close();
 
+        try out_file.setEndPos(0);
+        try out_file.seekTo(0);
+
         try module.encode(out_file.writer());
 
         return;

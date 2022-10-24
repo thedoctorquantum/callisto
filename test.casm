@@ -71,11 +71,11 @@ entry proc main
     c0 = clear;
 
     loop_begin: {
-        c1 = neql c0, 10;
-        c0 = iadd c0, 1;
-
         a0 = move c0; 
         call print_int;
+
+        c1 = neql c0, 10;
+        c0 = iadd c0, 1;
 
         jumpif c1, loop_begin;
     }
