@@ -133,6 +133,7 @@ fn run() !void
         const instruction_bytes = module.getSectionData(.instructions, 0) orelse unreachable;
         const instruction_code_points = @ptrCast([*]const u16, @alignCast(@alignOf(u16), instruction_bytes.ptr))[0 .. instruction_bytes.len / @sizeOf(u16)];
 
+        if (false)
         {
             @setRuntimeSafety(false);
 
@@ -386,7 +387,11 @@ fn run() !void
                         .break_instruction => {
                             continue;
                         },
-                        else => return error.ErrorTrap,
+                        else => {
+                            std.debug.print("Error: {}\n", .{ trap });
+
+                            return;
+                        },
                     }
                 }
 

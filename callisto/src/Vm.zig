@@ -302,7 +302,7 @@ var segfault_jump_buf: jump_buf = undefined;
 pub const ExecuteResult = struct 
 {
     trap: ?ExecuteTrap = null,
-    last_instruction: [*]align(@alignOf(u16)) u8
+    last_instruction: [*]align(@alignOf(u16)) u8,
 };
 
 pub fn execute(
@@ -333,7 +333,7 @@ pub fn execute(
 
     const instructions_begin: [*]align(2) u8 = @ptrCast([*]u8, module.instructions.ptr);
 
-    var instruction_count: if (mode == .bounded) u32 else void = undefined;
+    var instruction_count: u32 = 0;
 
     while (true)
     {
@@ -642,7 +642,10 @@ pub fn execute(
                 );
             },
             .imp0, .imp1, .imp2, .imp3, .imp4, .imp5, .imp6, .imp7 => {},
-            _ => unreachable,
+            _ => return .{
+                .trap = .invalid_opcode,
+                .last_instruction = instruction_begin,
+            },
         }
     }
 } 

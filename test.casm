@@ -12,6 +12,57 @@ import proc puts;
 //entrypoint procedure
 entry proc main 
 {
+    //memory instructions
+    /*
+        //general purpose memory
+        load8 r0, r1;
+        load16
+        load32
+        load64
+
+        store8 r0, 0;
+        store16
+        store32 
+        store64
+
+        //data memory
+        daddr r0, 0; //address translation
+
+        dload8 r1, r0; //gp rel load 
+        dload16
+        dload32
+        dload64
+
+        dstore8 r1, 0; //gp rel store
+        dstore16
+        dstore32
+        dstore64
+
+        //stack memory
+        saddr r0, 0; //address translation
+        spadd r0; //add signed int to sp 
+
+        sload8 r1, r0; //sp rel load
+        sload16
+        sload32
+        sload64
+
+        sstore8 r1, r0; //sp rel store
+        sstore16
+        sstore32
+        sstore64
+
+        spush8 r0; //sp rel store+add
+        spush16 r0; //sp rel store+add
+        spush32 r0; //sp rel store+add
+        spush64 r0; //sp rel store+add
+        
+        spop8 r0; //sp rel load+sub
+        spop16 r0; //sp rel load+sub
+        spop32 r0; //sp rel load+sub
+        spop64 r0; //sp rel load+sub
+    */
+
     a0 = daddr message; //daddr
     a1 = move message_len;
     call puts;

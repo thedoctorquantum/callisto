@@ -4,6 +4,7 @@ const Vm = @import("Vm.zig");
 
 pub const ModuleInstance = struct 
 {
+    image: []u8,
     instructions: []u16,
     data: []u8,
     data_stack: []u64,
@@ -46,34 +47,57 @@ pub fn load(allocator: std.mem.Allocator, module: Module) !ModuleInstance
         .data_stack = &.{},
         .call_stack = &.{},
         .natives = &.{},
+        .image = &.{},
     };
 
-    module_instance.call_stack = try allocator.alloc(Vm.CallFrame, 64);
+    const instructions_section = module.getSectionData(.instructions, 0) orelse return error.NoInstructionSection;
+    const data_section = module.getSectionData(.data, 0) orelse return error.NoDataSection;
+
+    const call_stack_size: usize = 64 * @sizeOf(Vm.CallFrame);
+    const data_stack_size: usize = 1024;
+
+    var image_size: usize = 0;
+
+    const instructions_offset: usize = 0;
+
+    image_size += instructions_section.len;
+
+    const data_offset: usize = image_size;
+
+    image_size += data_section.len;
+
+    image_size = std.mem.alignForward(image_size, @alignOf(Vm.CallFrame));
+
+    const call_stack_offset: usize = image_size;
+
+    image_size += call_stack_size;
+
+    const data_stack_offset: usize = image_size;
+
+    image_size += data_stack_size;
+
+    const image = try allocator.alloc(u8, image_size);
+
+    module_instance.image = image;
+
+    @memset(image.ptr + call_stack_offset, 0, call_stack_size);
+    @memset(image.ptr + data_stack_offset, 0, data_stack_size);
+
+    @memcpy(image.ptr + instructions_offset, instructions_section.ptr, instructions_section.len);
+    @memcpy(image.ptr + data_offset, data_section.ptr, data_section.len);
+
+    module_instance.instructions = @ptrCast([*]u16, @alignCast(@alignOf(u16), image.ptr + instructions_offset))[0..instructions_section.len / @sizeOf(u16)];
+    module_instance.data = image[data_offset..data_offset + data_section.len];
+    module_instance.call_stack = @ptrCast([*]Vm.CallFrame, @alignCast(@alignOf(Vm.CallFrame), image[call_stack_offset..call_stack_offset + call_stack_size]))[0..call_stack_size / @sizeOf(Vm.CallFrame)];
 
     linkNamespace(allocator, &module_instance, natives);
-
-    if (module.getSectionData(.instructions, 0)) |instructions_bytes|
-    {
-        module_instance.instructions = try allocator.dupe(u16, @ptrCast([*]u16, @alignCast(@alignOf(u16), instructions_bytes.ptr))[0..instructions_bytes.len / @sizeOf(u16)]);
-    }
-
-    if (module.getSectionData(.data, 0)) |data|
-    {
-        module_instance.data = try allocator.dupe(u8, data);
-    }
 
     return module_instance;
 } 
 
 pub fn unload(allocator: std.mem.Allocator, module_instance: ModuleInstance) void
 {
-    allocator.free(module_instance.instructions);
-    allocator.free(module_instance.call_stack);
-
-    if (module_instance.data.len > 0)
-    {
-        allocator.free(module_instance.data);
-    }
+    allocator.free(module_instance.image);
 }
 
 pub fn linkNamespace(allocator: std.mem.Allocator, module_instance: *ModuleInstance, comptime namespace: anytype) void 

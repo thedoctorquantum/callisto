@@ -89,7 +89,9 @@ pub fn step(self: *Debugger) !StepResult
                     } 
                 };
             },
-            else => return error.ErrorTrap,
+            else => {
+                return error.ErrorTrap;
+            },
         }
     }
 
