@@ -10,6 +10,16 @@ import proc alloc;
 import proc puts;
 import proc print_int;
 
+/*
+//system interface
+
+import proc os.mmap;
+import proc os.unmmap;
+import proc os.read;
+import proc os.write;
+import proc os.exit;
+*/
+
 //entrypoint procedure
 entry proc main 
 {

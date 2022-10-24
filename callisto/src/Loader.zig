@@ -14,6 +14,14 @@ pub const ModuleInstance = struct
 
 const natives = struct 
 {
+    pub const os = struct 
+    {
+        pub fn sus() void 
+        {
+            std.log.info("I'm very sus", .{});
+        }
+    };
+
     pub fn nativeTest(a: u64, b: u64, c: u64) u64 
     {
         const res = a * b + c;
@@ -161,29 +169,28 @@ pub fn unload(allocator: std.mem.Allocator, module_instance: ModuleInstance) voi
     allocator.free(module_instance.image);
 }
 
-fn NamespaceMap(comptime namespace: anytype) type
+const NativeProcedureKV = struct 
+{ 
+    @"0": []const u8,
+    @"1": *const Vm.NativeProcedure,
+};
+
+pub fn NamespaceMap(comptime namespace: type) type 
 {
-    const decls = @typeInfo(namespace).Struct.decls;
+    comptime var procedures: []const NativeProcedureKV = &.{};
+    
+    addNamespaceToMap(&procedures, namespace, namespace);
 
-    const KeyValue = struct 
-    { 
-        @"0": []const u8,
-        @"1": *const Vm.NativeProcedure,
-    };
+    comptime var buf: [1024]u8 = undefined;
 
-    comptime var procedures: []const KeyValue = &.{};
-
-    inline for (decls) |decl|
+    for (procedures) |procedure|
     {
-        if (!decl.is_pub) continue;
+        _ = buf;
 
-        procedures = procedures ++ &[_]KeyValue 
-        { 
-            .{ 
-                .@"0" = decl.name,
-                .@"1" = &extFn(@field(namespace, decl.name)),
-            }
-        };
+        _ = procedure;
+        // @compileError(procedure.@"0");
+
+        // @compileLog(std.fmt.bufPrint(&buf, "{s}\n", .{ procedure.@"0" }) catch unreachable);
     }
 
     return std.ComptimeStringMap(
@@ -192,8 +199,39 @@ fn NamespaceMap(comptime namespace: anytype) type
     );
 }
 
+fn addNamespaceToMap(comptime procedures: *[]const NativeProcedureKV, comptime root: type, comptime namespace: type) void
+{
+    const decls = @typeInfo(namespace).Struct.decls;
+
+    inline for (decls) |decl|
+    {
+        if (!decl.is_pub) continue;
+
+        const decl_value = @field(namespace, decl.name);
+
+        switch (@typeInfo(@TypeOf(decl_value)))
+        {
+            .Type => {
+                addNamespaceToMap(procedures, root, decl_value);
+            },
+            .Fn => {
+                const mangled_name = (@typeName(namespace) ++ "." ++ decl.name)[@typeName(root).len + 1..];
+
+                procedures.* = procedures.* ++ &[_]NativeProcedureKV 
+                { 
+                    .{ 
+                        .@"0" = mangled_name,
+                        .@"1" = &bindProcedure(decl_value),
+                    }
+                };
+            },
+            else => comptime unreachable,
+        }
+    }
+}
+
 //Generates a wrapper for any zig function
-pub fn extFn(comptime proc: anytype) Vm.NativeProcedure
+pub fn bindProcedure(comptime proc: anytype) Vm.NativeProcedure
 {
     const arg_types = @typeInfo(@TypeOf(proc)).Fn.args;
 
