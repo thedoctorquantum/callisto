@@ -50,20 +50,13 @@ pub const Section = extern struct
 
 pub const ImportSectionHeader = extern struct 
 {
-    symbol_count: u64,
+    procedure_count: u32,
 };
 
-pub const SymbolImport = extern struct 
+pub const ImportProcedure = extern struct 
 {
-    tag: Tag,
     offset: u32,
     size: u32,
-
-    pub const Tag = enum(u8)
-    {
-        procedure,
-        variable,
-    };
 };
 
 pub const ExportSectionHeader = extern struct 

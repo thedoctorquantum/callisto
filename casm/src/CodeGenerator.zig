@@ -579,6 +579,12 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
     const symbol_to_data_point_indices = try allocator.alloc(u32, ir.symbol_table.items.len);
     defer allocator.free(symbol_to_data_point_indices);
 
+    var imported_procedures = std.ArrayListUnmanaged(callisto.Module.ImportProcedure) {};
+    defer imported_procedures.deinit(allocator);
+
+    var imported_procedures_symbols = std.ArrayListUnmanaged(u8) {};
+    defer imported_procedures_symbols.deinit(allocator);
+
     for (ir.symbol_table.items) |symbol, i|
     {
         switch (symbol)
@@ -596,6 +602,15 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
                     .size = data.size,
                     .offset = @intCast(u32, offset),
                 });
+            },
+            .imported_procedure => |imported_procedure| 
+            {
+                try imported_procedures.append(allocator, .{
+                    .offset = @intCast(u32, imported_procedures_symbols.items.len),
+                    .size = @intCast(u32, imported_procedure.name.len),
+                });
+
+                try imported_procedures_symbols.appendSlice(allocator, imported_procedure.name);
             },
             else => {},
         }
@@ -780,6 +795,39 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
     std.mem.copy(u8, try export_section_fba.allocator().alloc(u8, exported_symbol_text.items.len), exported_symbol_text.items);
 
     _ = try module.addSectionDataAligned(.exports, u8, export_section_data, @alignOf(callisto.Module.ExportSectionHeader));
+
+    //emit import section
+    {
+        const section_size = @sizeOf(callisto.Module.ImportSectionHeader) + 
+                             (imported_procedures.items.len * @sizeOf(callisto.Module.ImportProcedure)) +
+                             imported_procedures_symbols.items.len;
+
+        const section_data = try module.addSection(.imports, section_size, @alignOf(callisto.Module.ImportSectionHeader));
+        var section_offset: usize = 0;
+
+        const section_header = @ptrCast(
+            *callisto.Module.ImportSectionHeader, 
+            @alignCast(@alignOf(callisto.Module.ImportSectionHeader), section_data.ptr + section_offset)
+        );
+        section_offset += @sizeOf(callisto.Module.ImportSectionHeader);
+
+        section_header.procedure_count = @intCast(u32, imported_procedures.items.len);
+
+        @memcpy(
+            section_data.ptr + section_offset, 
+            @ptrCast([*]u8, imported_procedures.items.ptr), 
+            imported_procedures.items.len * @sizeOf(callisto.Module.ImportProcedure)
+        );
+        section_offset += imported_procedures.items.len * @sizeOf(callisto.Module.ImportProcedure);
+
+        @memcpy(
+            section_data.ptr + section_offset, 
+            imported_procedures_symbols.items.ptr, 
+            imported_procedures_symbols.items.len
+        );
+        section_offset += imported_procedures_symbols.items.len;
+    }
+
 
     _ = try module.addSectionData(.data, u8, preinit_data.items);
 

@@ -8,6 +8,7 @@ var other_message_len = $sizeof(other_message);
 import proc nativeTest;
 import proc alloc;
 import proc puts;
+import proc print_int;
 
 //entrypoint procedure
 entry proc main 
@@ -72,6 +73,9 @@ entry proc main
     loop_begin: {
         c1 = neql c0, 10;
         c0 = iadd c0, 1;
+
+        a0 = move c0; 
+        call print_int;
 
         jumpif c1, loop_begin;
     }

@@ -9,7 +9,7 @@ pub const ModuleInstance = struct
     data: []u8,
     data_stack: []u64,
     call_stack: []Vm.CallFrame,
-    natives: []const *const Vm.NativeProcedure,
+    natives: []*const Vm.NativeProcedure,
 };
 
 const natives = struct 
@@ -36,6 +36,11 @@ const natives = struct
     {
         std.io.getStdOut().writer().print("print: {s}\n", .{ string }) catch unreachable;
     }
+
+    pub fn print_int(int: u64) void 
+    {
+        std.log.info("print_int: {}", .{ int });
+    }
 };
 
 pub fn load(allocator: std.mem.Allocator, module: Module) !ModuleInstance 
@@ -52,13 +57,38 @@ pub fn load(allocator: std.mem.Allocator, module: Module) !ModuleInstance
 
     const instructions_section = module.getSectionData(.instructions, 0) orelse return error.NoInstructionSection;
     const data_section = module.getSectionData(.data, 0) orelse return error.NoDataSection;
+    const import_section = module.getSectionData(.imports, 0);
 
     const call_stack_size: usize = 64 * @sizeOf(Vm.CallFrame);
     const data_stack_size: usize = 1024;
 
     var image_size: usize = 0;
 
-    const instructions_offset: usize = 0;
+    var native_table_offset: usize = image_size; 
+
+    var native_count: usize = 0;
+
+    const natives_map = NamespaceMap(natives);
+
+    var import_symbols_begin: [*]u8 = undefined;
+
+    //native procedure linking
+    if (import_section) |import_bytes|
+    {
+        var head: usize = 0;
+        
+        const import_header = @ptrCast(*Module.ImportSectionHeader, @alignCast(@alignOf(Module.ImportSectionHeader), import_bytes.ptr + head)).*;
+
+        head += @sizeOf(Module.ImportSectionHeader);
+
+        native_count = import_header.procedure_count;
+
+        import_symbols_begin = import_bytes.ptr + head + import_header.procedure_count * @sizeOf(Module.ImportProcedure);
+    }
+
+    image_size += native_count * @sizeOf(*Vm.NativeProcedure);
+
+    const instructions_offset: usize = image_size;
 
     image_size += instructions_section.len;
 
@@ -89,8 +119,39 @@ pub fn load(allocator: std.mem.Allocator, module: Module) !ModuleInstance
     module_instance.instructions = @ptrCast([*]u16, @alignCast(@alignOf(u16), image.ptr + instructions_offset))[0..instructions_section.len / @sizeOf(u16)];
     module_instance.data = image[data_offset..data_offset + data_section.len];
     module_instance.call_stack = @ptrCast([*]Vm.CallFrame, @alignCast(@alignOf(Vm.CallFrame), image[call_stack_offset..call_stack_offset + call_stack_size]))[0..call_stack_size / @sizeOf(Vm.CallFrame)];
+    module_instance.natives = @ptrCast([*]*const Vm.NativeProcedure, @alignCast(@alignOf(*const Vm.NativeProcedure), image.ptr + native_table_offset))[0..native_count];
 
-    linkNamespace(allocator, &module_instance, natives);
+    //native procedure linking
+    if (import_section) |import_bytes|
+    {
+        var head: usize = 0;
+        
+        const import_header = @ptrCast(*Module.ImportSectionHeader, @alignCast(@alignOf(Module.ImportSectionHeader), import_bytes.ptr + head)).*;
+
+        head += @sizeOf(Module.ImportSectionHeader);
+
+        native_count = import_header.procedure_count;
+
+        var procedure_index: usize = 0;
+
+        while (procedure_index < native_count) : (procedure_index += 1)
+        {
+            const procedure = @ptrCast(*Module.ImportProcedure, @alignCast(@alignOf(Module.ImportProcedure), import_bytes.ptr + head)).*;
+            head += @sizeOf(Module.ImportProcedure);
+
+            const procedure_name = import_symbols_begin[procedure.offset..procedure.offset + procedure.size];
+
+            std.log.info("importing procedure: {s}...", .{ procedure_name });
+
+            const procedure_pointer = natives_map.get(procedure_name) orelse {
+                return error.LinkFailure;
+            };
+
+            module_instance.natives[procedure_index] = procedure_pointer;
+
+            std.log.info("procedure '{s}' = {*}\n", .{ procedure_name, procedure_pointer });
+        }
+    }
 
     return module_instance;
 } 
@@ -100,22 +161,35 @@ pub fn unload(allocator: std.mem.Allocator, module_instance: ModuleInstance) voi
     allocator.free(module_instance.image);
 }
 
-pub fn linkNamespace(allocator: std.mem.Allocator, module_instance: *ModuleInstance, comptime namespace: anytype) void 
+fn NamespaceMap(comptime namespace: anytype) type
 {
-    _ = allocator;
-
     const decls = @typeInfo(namespace).Struct.decls;
 
-    comptime var procedures: []const *const Vm.NativeProcedure = &.{};
+    const KeyValue = struct 
+    { 
+        @"0": []const u8,
+        @"1": *const Vm.NativeProcedure,
+    };
+
+    comptime var procedures: []const KeyValue = &.{};
 
     inline for (decls) |decl|
     {
         if (!decl.is_pub) continue;
 
-        procedures = procedures ++ &[_]*const Vm.NativeProcedure { &extFn(@field(namespace, decl.name)) };
+        procedures = procedures ++ &[_]KeyValue 
+        { 
+            .{ 
+                .@"0" = decl.name,
+                .@"1" = &extFn(@field(namespace, decl.name)),
+            }
+        };
     }
 
-    module_instance.natives = procedures;
+    return std.ComptimeStringMap(
+        *const Vm.NativeProcedure, 
+        procedures
+    );
 }
 
 //Generates a wrapper for any zig function
