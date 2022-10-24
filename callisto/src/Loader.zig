@@ -16,29 +16,20 @@ const natives = struct
 {
     pub const os = struct 
     {
-        pub fn sus() void 
+        pub fn mmap(size: u64) ?*anyopaque
         {
-            std.log.info("I'm very sus", .{});
+            std.log.info("mmap: {}", .{ size });
+
+            return std.c.malloc(size);
+        }
+
+        pub fn munmap(ptr: ?*anyopaque, size: u64) void
+        {
+            std.log.info("munmap: {*}, {}", .{ ptr, size });
+
+            std.c.free(ptr);
         }
     };
-
-    pub fn nativeTest(a: u64, b: u64, c: u64) u64 
-    {
-        const res = a * b + c;
-
-        std.log.info("envMulAdd {}", .{ res });
-
-        return res;
-    }
-
-    pub fn alloc(size: u64) []const u8
-    {
-        const log = std.log.scoped(.Loader);
-
-        log.info("Alloc {}", .{ size });
-
-        return @ptrCast([*]const u8, std.c.malloc(size))[0..size];
-    }
 
     pub fn puts(string: []const u8) void 
     {
@@ -289,10 +280,25 @@ pub fn bindProcedure(comptime proc: anytype) Vm.NativeProcedure
 
                                 args[i] = @intToPtr([*]std.meta.Child(ArgType), register0)[0..register1];
                             },
-                            else => unreachable 
+                            else => comptime unreachable 
                         }
                     },
-                    else => unreachable
+                    .Optional => |optional| {
+                        switch (@typeInfo(optional.child))
+                        {
+                            .Pointer => |pointer| {
+                                switch (pointer.size)
+                                {
+                                    .One, .Many => {
+                                        args[i] = @intToPtr(ArgType, registers[8 + register_index]);
+                                    },
+                                    else => comptime unreachable 
+                                }
+                            },
+                            else => comptime unreachable,
+                        }
+                    },
+                    else => comptime unreachable
                 }
 
                 register_index += 1;
@@ -319,11 +325,26 @@ pub fn bindProcedure(comptime proc: anytype) Vm.NativeProcedure
                             registers[15] = @intCast(u64, @ptrToInt(return_value.ptr));
                             registers[14] = @intCast(u64, return_value.len);
                         },
-                        else => unreachable 
+                        else => comptime unreachable 
                     }
                 },
                 .Void => {},
-                else => unreachable
+                .Optional => |optional| {
+                    switch (@typeInfo(optional.child))
+                    {
+                        .Pointer => |pointer| {
+                            switch (pointer.size)
+                            {
+                                .One, .Many => {
+                                    registers[15] = @intCast(u64, @ptrToInt(return_value));
+                                },
+                                else => comptime unreachable 
+                            }
+                        },
+                        else => comptime unreachable,
+                    }
+                },
+                else => comptime unreachable
             }
             
         }

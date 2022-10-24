@@ -5,24 +5,36 @@ var message_len = $sizeof(message);
 var other_message = "bye, world!";
 var other_message_len = $sizeof(other_message);
 
-import proc nativeTest;
-import proc alloc;
 import proc puts;
 import proc print_int;
 
-/*
 //system interface
-
 import proc os.mmap;
-import proc os.unmmap;
-import proc os.read;
-import proc os.write;
-import proc os.exit;
-*/
+import proc os.munmap;
 
 //entrypoint procedure
 entry proc main 
 {
+    a0 = move 10;
+    call os.mmap;
+
+    c0 = move a7; 
+    c1 = move c0; 
+
+    store8 c1, '!';
+    c1 = iadd c1, 1;
+    store8 c1, '*';
+    c1 = iadd c1, 1;
+    store8 c1, '!';
+
+    a0 = move c0;
+    a1 = move 10;
+    call puts; 
+
+    a0 = move c0;
+    a1 = move 10;
+    call os.munmap;
+
     //memory instructions
     /*
         //general purpose memory

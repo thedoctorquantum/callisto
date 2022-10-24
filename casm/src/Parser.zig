@@ -324,12 +324,10 @@ pub fn parseProcedure(self: *@This()) !void
 
     _ = try self.expectToken(.keyword_proc);
 
-    const identifier_token = try self.expectToken(.identifier);
-
-    const identifier = self.source[self.token_starts[identifier_token]..self.token_ends[identifier_token]];
-
     if (is_import)
     {
+        const identifier = try self.parseNamespacedIdentifier();
+
         _ = try self.expectToken(.semicolon);
 
         if (self.getSymbol(identifier) catch null) |symbol_index|
@@ -356,7 +354,12 @@ pub fn parseProcedure(self: *@This()) !void
 
             return;
         }
+
+        return;
     }
+
+    const identifier_token = try self.expectToken(.identifier);
+    const identifier = self.source[self.token_starts[identifier_token]..self.token_ends[identifier_token]];
 
     if (is_entry)
     {
@@ -392,6 +395,31 @@ pub fn parseProcedure(self: *@This()) !void
     self.popScope();
 
     std.log.info("\nparseProcedure\n", .{});
+}
+
+pub fn parseNamespacedIdentifier(self: *@This()) ![]const u8
+{
+    var namespaced_identifier = std.ArrayListUnmanaged(u8) {};
+
+    while (true)
+    {
+        const identifier_token = try self.expectToken(.identifier);
+
+        std.log.info("IDENT: {s}", .{ self.source[self.token_starts[identifier_token]..self.token_ends[identifier_token]] });
+
+        try namespaced_identifier.appendSlice(self.allocator, self.source[self.token_starts[identifier_token]..self.token_ends[identifier_token]]);
+
+        if (self.eatToken(.dot) != null)
+        {
+            try namespaced_identifier.append(self.allocator, '.');
+        }
+        else 
+        {
+            break;
+        }
+    }
+
+    return namespaced_identifier.items;
 }
 
 pub fn parseBlock(self: *@This()) !void
@@ -477,16 +505,49 @@ pub fn parseInstruction(self: *@This()) !void
     var read_operand_index: usize = 0;
     var read_operands: [2]IR.Statement.Instruction.Operand = .{ .empty, .empty };
 
-    if (self.eatToken(.semicolon) == null)
+    // I think this is a bug?
+    // if (self.eatToken(.semicolon) == null)
     {
         while (true)
         {
             const operand_token = (self.parseIntegerLiteral() catch 
             self.eatToken(.argument_register) orelse 
             self.eatToken(.context_register) orelse 
-            self.eatToken(.identifier) orelse
             self.parseBuiltinFunction() catch
-                break).?;
+                {                    
+                    const identifier = self.parseNamespacedIdentifier() catch break;
+
+                    const symbol = self.getSymbol(identifier) catch block: 
+                    {
+                        try self.definePatch(identifier, @intCast(u32, self.ir.statements.items.len), @intCast(u32, read_operand_index));
+
+                        if (IR.isBlockTerminatorOperation(opcode))
+                        {
+                            try self.basic_block_patches.put(self.allocator, identifier, .{
+                                .basic_block = @intCast(u32, basic_block_index),
+                                .is_next = opcode == .jump,
+                            });
+                        }
+
+                        break :block null;
+                    };
+
+                    if (symbol != null)
+                    {
+                        read_operands[read_operand_index] = .{
+                            .symbol = symbol.?
+                        };
+                    }
+
+                    read_operand_index += 1;
+
+                    if (self.eatToken(.comma) == null)
+                    {
+                        break;
+                    }
+
+                    continue;
+                }).?;
 
             switch (self.token_tags[operand_token])
             {
@@ -522,30 +583,30 @@ pub fn parseInstruction(self: *@This()) !void
                         .register = Tokenizer.Token.getContextRegister(self.source[self.token_starts[operand_token]..self.token_ends[operand_token]]) orelse unreachable
                     };
                 },
-                .identifier => {
-                    const identifier = self.source[self.token_starts[operand_token]..self.token_ends[operand_token]];
-                    const symbol = self.getSymbol(identifier) catch block: 
-                    {
-                        try self.definePatch(identifier, @intCast(u32, self.ir.statements.items.len), @intCast(u32, read_operand_index));
+                // .identifier => {
+                //     const identifier = self.source[self.token_starts[operand_token]..self.token_ends[operand_token]];
+                //     const symbol = self.getSymbol(identifier) catch block: 
+                //     {
+                //         try self.definePatch(identifier, @intCast(u32, self.ir.statements.items.len), @intCast(u32, read_operand_index));
 
-                        if (IR.isBlockTerminatorOperation(opcode))
-                        {
-                            try self.basic_block_patches.put(self.allocator, identifier, .{
-                                .basic_block = @intCast(u32, basic_block_index),
-                                .is_next = opcode == .jump,
-                            });
-                        }
+                //         if (IR.isBlockTerminatorOperation(opcode))
+                //         {
+                //             try self.basic_block_patches.put(self.allocator, identifier, .{
+                //                 .basic_block = @intCast(u32, basic_block_index),
+                //                 .is_next = opcode == .jump,
+                //             });
+                //         }
 
-                        break :block null;
-                    };
+                //         break :block null;
+                //     };
 
-                    if (symbol != null)
-                    {
-                        read_operands[read_operand_index] = .{
-                            .symbol = symbol.?
-                        };
-                    }
-                },
+                //     if (symbol != null)
+                //     {
+                //         read_operands[read_operand_index] = .{
+                //             .symbol = symbol.?
+                //         };
+                //     }
+                // },
                 else => unreachable,
             }
 
@@ -571,6 +632,10 @@ pub fn parseInstruction(self: *@This()) !void
 
 pub fn parseBuiltinFunction(self: *@This()) !?u32
 {
+    //save the beginning token and restore it on error
+    const token_start = self.token_index;
+    errdefer self.token_index = token_start;
+
     _ = self.eatToken(.dollar);
 
     const identifier_token = try self.expectToken(.identifier);

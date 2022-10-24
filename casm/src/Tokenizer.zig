@@ -120,6 +120,12 @@ pub fn next(self: *Tokenizer) ?Token
 
                     break;
                 },
+                '.' => {
+                    result.tag = .dot;
+                    self.index += 1;
+
+                    break;
+                },
                 ':' => {
                     result.tag = .colon;
                     self.index += 1;
@@ -186,15 +192,21 @@ pub fn next(self: *Tokenizer) ?Token
             .literal_char => {
                 switch (char)
                 {
-                    'a'...'z', 'A'...'Z', '0'...'9', '\'', '!' => {},
-                    else => break,
+                    else => {},
+                    '\'' => {
+                        self.index += 1;
+                        break;
+                    },
                 }
             },
             .literal_string => {
                 switch (char)
                 {
-                    'a'...'z', 'A'...'Z', '0'...'9', ',', ' ', '!', '\n', '\t', '\"' => {},
-                    else => break,
+                    else => {},
+                    '\"' => {
+                        self.index += 1;
+                        break;
+                    },
                 }
             },
             .slash => {
@@ -279,6 +291,7 @@ pub const Token = struct
         right_paren,
         equals,
         dollar,
+        dot,
         literal_integer,
         literal_hex,
         literal_binary,
@@ -323,6 +336,7 @@ pub const Token = struct
             .left_paren => "(",
             .right_paren => ")",
             .dollar => "$",
+            .dot => ".",
         };
     }
 
