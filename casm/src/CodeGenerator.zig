@@ -30,7 +30,7 @@ pub const Procedure = struct
     index: u32,
 };
 
-pub fn sizeInstruction(instruction: Instruction) usize
+pub fn sizeInstruction(instruction: Instruction, data_points: []const DataPoint) usize
 {
     var registers_size: usize = 0;
     var immediate_sizes: [3]usize = .{ 0, 0, 0 };
@@ -70,9 +70,27 @@ pub fn sizeInstruction(instruction: Instruction) usize
                 immediate_count += 1;
                 immediate_sizes[i] = @sizeOf(u64);
             },
-            .data_point_index => {
+            .data_point_index => |data_point_index| {
                 immediate_count += 1;
-                immediate_sizes[i] = @sizeOf(u64);
+
+                const immediate = data_points[data_point_index].offset;
+
+                if (immediate <= std.math.maxInt(u8))
+                {
+                    immediate_sizes[i] = @sizeOf(u16);
+                }
+                else if (immediate > std.math.maxInt(u8) and immediate <= std.math.maxInt(u16))
+                {
+                    immediate_sizes[i] = @sizeOf(u16);
+                }
+                else if (immediate > std.math.maxInt(u16) and immediate <= std.math.maxInt(u32))
+                {
+                    immediate_sizes[i] = @sizeOf(u32);
+                }
+                else
+                {
+                    immediate_sizes[i] = @sizeOf(u64);
+                }
             },
             .empty => {},
         }
@@ -171,8 +189,13 @@ pub fn encodeInstruction(
                     immediate = operand_immediate;
                     break;
                 },
-                .instruction_index, .data_point_index => {
+                .instruction_index, => {
                     break: block .@"64";
+                },
+                .data_point_index => |data_point_index| {
+                    immediate = data_points[data_point_index].offset;
+
+                    break;
                 },
                 else => immediate = std.math.maxInt(u64),
             }
@@ -340,7 +363,7 @@ pub fn encodeInstruction(
             {
                 const immediate: u64 = data_points[data_point_index].offset;
 
-                try code_points.appendSlice(@ptrCast([*]const u16, &immediate)[0..@sizeOf(u64) / 2]);
+                try code_points.appendSlice(@ptrCast([*]const u16, &immediate)[0..code_points_per_immediate]);
             },
             else => unreachable,
         }
@@ -664,7 +687,7 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
 
         for (instructions.items) |instruction, i|
         {
-            const size = sizeInstruction(instruction);
+            const size = sizeInstruction(instruction, data_points.items);
 
             instruction_addresses[i] = @intCast(u32, current_address); 
 
