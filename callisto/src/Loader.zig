@@ -36,7 +36,7 @@ const natives = struct
         std.io.getStdOut().writer().print("print: {s}\n", .{ string }) catch unreachable;
     }
 
-    pub fn print_int(int: u64) void 
+    pub fn print_int(int: i64) void 
     {
         std.log.info("print_int: {}", .{ int });
     }
@@ -264,7 +264,7 @@ pub fn bindProcedure(comptime proc: anytype) Vm.NativeProcedure
                 {
                     .Int => {
                         // args[i] = vm.getRegister(@intToEnum(Vm.Register, 8 + register_index)).*;
-                        args[i] = registers[8 + register_index];
+                        args[i] = @bitCast(ArgType, registers[8 + register_index]);
                     },
                     .Pointer => |pointer| {
                         switch (pointer.size)
@@ -278,7 +278,15 @@ pub fn bindProcedure(comptime proc: anytype) Vm.NativeProcedure
 
                                 register_index += 1;
 
-                                args[i] = @intToPtr([*]std.meta.Child(ArgType), register0)[0..register1];
+                                if (register0 != 0)
+                                {
+                                    args[i] = @intToPtr([*]std.meta.Child(ArgType), register0)[0..register1];
+                                }
+                                else 
+                                {
+                                    args[i] = &.{};
+                                }
+
                             },
                             else => comptime unreachable 
                         }

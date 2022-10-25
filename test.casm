@@ -94,6 +94,7 @@ entry proc main
 
     c0 = clear;
 
+
     loop_begin: {
         a0 = move c0; 
         call print_int;
@@ -103,6 +104,18 @@ entry proc main
 
         jumpif c1, loop_begin;
     }
+
+    a0 = move -5; 
+    call print_int;
+
+    a0 = move -15; 
+    call print_int;
+
+    c0 = move -5;
+    c1 = move -15;
+
+    a0 = iadd c0, c1;
+    call print_int;
 
     a0 = daddr other_message; //daddr
     a1 = move other_message_len;

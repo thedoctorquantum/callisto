@@ -49,22 +49,9 @@ pub fn sizeInstruction(instruction: Instruction, data_points: []const DataPoint)
             .immediate => |immediate| {
                 immediate_count += 1;
 
-                if (immediate <= std.math.maxInt(u8))
-                {
-                    immediate_sizes[i] = @sizeOf(u16);
-                }
-                else if (immediate > std.math.maxInt(u8) and immediate <= std.math.maxInt(u16))
-                {
-                    immediate_sizes[i] = @sizeOf(u16);
-                }
-                else if (immediate > std.math.maxInt(u16) and immediate <= std.math.maxInt(u32))
-                {
-                    immediate_sizes[i] = @sizeOf(u32);
-                }
-                else
-                {
-                    immediate_sizes[i] = @sizeOf(u64);
-                }
+                immediate_sizes[i] = signedImmediateSizeOf(immediate);
+
+                if (immediate_sizes[i] == 1) immediate_sizes[i] = 2;
             },
             .instruction_index => {
                 immediate_count += 1;
@@ -75,22 +62,9 @@ pub fn sizeInstruction(instruction: Instruction, data_points: []const DataPoint)
 
                 const immediate = data_points[data_point_index].offset;
 
-                if (immediate <= std.math.maxInt(u8))
-                {
-                    immediate_sizes[i] = @sizeOf(u16);
-                }
-                else if (immediate > std.math.maxInt(u8) and immediate <= std.math.maxInt(u16))
-                {
-                    immediate_sizes[i] = @sizeOf(u16);
-                }
-                else if (immediate > std.math.maxInt(u16) and immediate <= std.math.maxInt(u32))
-                {
-                    immediate_sizes[i] = @sizeOf(u32);
-                }
-                else
-                {
-                    immediate_sizes[i] = @sizeOf(u64);
-                }
+                immediate_sizes[i] = signedImmediateSizeOf(immediate);
+
+                if (immediate_sizes[i] == 1) immediate_sizes[i] = 2;
             },
             .empty => {},
         }
@@ -104,6 +78,76 @@ pub fn sizeInstruction(instruction: Instruction, data_points: []const DataPoint)
     }
 
     return @sizeOf(callisto.Vm.InstructionHeader) + registers_size + (immediate_size * immediate_count);
+}
+
+///Calculates the size of an immediate accounting for sign extension rules
+fn signedImmediateSizeOf(immediate: u64) usize
+{
+    const leading_zero_bits: usize = @clz(immediate);
+
+    const information_size: usize = @intCast(usize, @bitSizeOf(u64)) - leading_zero_bits;
+
+    // const aligned_byte_count = switch (information_size)
+    // {
+    //     0...8 => 1,
+    //     9...16 => 2,
+    //     17...32 => 4,
+    //     33...64 => 8,
+    //     else => unreachable,
+    // };
+
+    const aligned_byte_count: usize = 
+        if (information_size >= 0 and information_size <= 8) 1
+        else if (information_size >= 9 and information_size <= 16) 2
+        else if (information_size >= 17 and information_size <= 32) 4
+        else if (information_size >= 33 and information_size <= 64) 8 else unreachable;
+
+    var actual_byte_count: usize = aligned_byte_count;
+
+    if (std.math.sign(@bitCast(i64, immediate)) == -1)
+    {
+        switch (aligned_byte_count)
+        {
+            1 => {},
+            2 => {
+                if ((immediate >> @bitSizeOf(u8)) & std.math.maxInt(u8) == std.math.maxInt(u8))
+                {
+                    actual_byte_count = @sizeOf(u8);
+                } 
+            },
+            4 => {
+                if ((immediate >> @bitSizeOf(u8)) & std.math.maxInt(u56) == std.math.maxInt(u56))
+                {
+                    actual_byte_count = @sizeOf(u8);
+                }
+                else if ((immediate >> @bitSizeOf(u16)) & std.math.maxInt(u48) == std.math.maxInt(u48))
+                {
+                    actual_byte_count = @sizeOf(u16);
+                }
+            },
+            8 => {
+                if ((immediate >> @bitSizeOf(u8)) & std.math.maxInt(u56) == std.math.maxInt(u56))
+                {
+                    actual_byte_count = @sizeOf(u8);
+                }
+                else if ((immediate >> @bitSizeOf(u16)) & std.math.maxInt(u48) == std.math.maxInt(u48))
+                {
+                    actual_byte_count = @sizeOf(u16);
+                }
+                else if ((immediate >> @bitSizeOf(u32)) & std.math.maxInt(u32) == std.math.maxInt(u32))
+                {
+                    actual_byte_count = @sizeOf(u32);
+                }
+            },
+            else => unreachable,
+        }
+    }
+    else 
+    {
+        actual_byte_count = aligned_byte_count;
+    }
+
+    return actual_byte_count;
 }
 
 pub fn encodeInstruction(
@@ -179,41 +223,36 @@ pub fn encodeInstruction(
     };
 
     const immediate_size: callisto.Vm.OperandAddressingSize = block: {
-        var immediate: u64 = 0;
-
         for (instruction.read_operands) |operand|
         {
             switch (operand)
             {
                 .immediate => |operand_immediate| {
-                    immediate = operand_immediate;
-                    break;
+                    break: block switch (signedImmediateSizeOf(operand_immediate))
+                    {
+                        1 => .@"8",
+                        2 => .@"16",
+                        4 => .@"32",
+                        8 => .@"64",
+                        else => unreachable,
+                    };
                 },
                 .instruction_index, => {
                     break: block .@"64";
                 },
                 .data_point_index => |data_point_index| {
-                    immediate = data_points[data_point_index].offset;
-
-                    break;
+                    break: block switch (signedImmediateSizeOf(data_points[data_point_index].offset))
+                    {
+                        1 => .@"8",
+                        2 => .@"16",
+                        4 => .@"32",
+                        8 => .@"64",
+                        else => unreachable,
+                    };
                 },
-                else => immediate = std.math.maxInt(u64),
+                .register => {},
+                .empty => {},
             }
-        }
-
-        if (immediate <= std.math.maxInt(u8))
-        {
-            break: block .@"8";
-        }
-        
-        if (immediate > std.math.maxInt(u8) and immediate <= std.math.maxInt(u16))
-        {
-            break: block .@"16";
-        }
-
-        if (immediate > std.math.maxInt(u16) and immediate <= std.math.maxInt(u32))
-        {
-            break: block .@"32";
         }
 
         break: block .@"64";
@@ -687,9 +726,15 @@ pub fn generate(allocator: std.mem.Allocator, ir: IR) !callisto.Module
 
         for (instructions.items) |instruction, i|
         {
+            std.log.info("current_address: {}", .{ current_address });
+
+            std.debug.assert(std.mem.isAligned(current_address, @alignOf(u16)));
+
             const size = sizeInstruction(instruction, data_points.items);
 
             instruction_addresses[i] = @intCast(u32, current_address); 
+
+            std.log.info("size: {}", .{ size });
 
             current_address += size;
         }

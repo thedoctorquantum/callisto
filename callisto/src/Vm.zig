@@ -305,6 +305,23 @@ pub const ExecuteResult = struct
     last_instruction: [*]align(@alignOf(u16)) u8,
 };
 
+inline fn signExtend(comptime DestType: type, int: anytype) DestType
+{   
+    @setRuntimeSafety(false);
+
+    const Unsigned = DestType;
+    const Signed = std.meta.Int(.signed, @bitSizeOf(DestType));
+
+    return @bitCast(Unsigned, @intCast(Signed, int));
+}
+
+comptime {
+    // const original: u16 = @bitCast(u16, @as(i16, -5));
+    // const extended: u64 = signExtend(u64, original);
+
+    // @compileLog(@bitCast(i64, extended));
+}
+
 pub fn execute(
     self: *@This(), 
     module: Loader.ModuleInstance, 
@@ -394,19 +411,19 @@ pub fn execute(
                 switch (instruction_header.immediate_size)
                 {
                     .@"8" => {
-                        read_operand0 = @truncate(u8, @ptrCast(*const u16, self.instruction_pointer).*);
+                        read_operand0 = signExtend(u64, @ptrCast(*const i8, self.instruction_pointer).*);
                         self.instruction_pointer += @sizeOf(u16);
                     },
                     .@"16" => {
-                        read_operand0 = @ptrCast(*const u16, self.instruction_pointer).*;
+                        read_operand0 = signExtend(u64, @ptrCast(*const i16, self.instruction_pointer).*);
                         self.instruction_pointer += @sizeOf(u16);
                     },
                     .@"32" => {
-                        read_operand0 = @ptrCast(*align(1) const u32, self.instruction_pointer).*; //unaligned read
+                        read_operand0 = signExtend(u64, @ptrCast(*align(1) const i32, self.instruction_pointer).*);
                         self.instruction_pointer += @sizeOf(u32);
                     },
                     .@"64" => { 
-                        read_operand0 = @ptrCast(*align(1) const u64, self.instruction_pointer).*; //unaligned read
+                        read_operand0 = @ptrCast(*align(1) const u64, self.instruction_pointer).*;
                         self.instruction_pointer += @sizeOf(u64);
                     },
                 }
@@ -423,19 +440,19 @@ pub fn execute(
                 switch (instruction_header.immediate_size)
                 {
                     .@"8" => {
-                        read_operand0 = @truncate(u8, @ptrCast(*const u16, self.instruction_pointer).*);
+                        read_operand0 = signExtend(u64, @ptrCast(*const i8, self.instruction_pointer).*);
                         self.instruction_pointer += @sizeOf(u16);
                     },
                     .@"16" => {
-                        read_operand0 = @ptrCast(*const u16, self.instruction_pointer).*;
+                        read_operand0 = signExtend(u64, @ptrCast(*const i16, self.instruction_pointer).*);
                         self.instruction_pointer += @sizeOf(u16);
                     },
                     .@"32" => {
-                        read_operand0 = @ptrCast(*align(1) const u32, self.instruction_pointer).*; //unaligned read
+                        read_operand0 = signExtend(u64, @ptrCast(*align(1) const i32, self.instruction_pointer).*);
                         self.instruction_pointer += @sizeOf(u32);
                     },
                     .@"64" => { 
-                        read_operand0 = @ptrCast(*align(1) const u64, self.instruction_pointer).*; //unaligned read
+                        read_operand0 = @ptrCast(*align(1) const u64, self.instruction_pointer).*;
                         self.instruction_pointer += @sizeOf(u64);
                     },
                 }
