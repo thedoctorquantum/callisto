@@ -203,6 +203,9 @@ pub fn next(self: *Tokenizer) ?Token
                 switch (char)
                 {
                     else => {},
+                    '\\' => {
+                        self.index += 1;
+                    },
                     '\"' => {
                         self.index += 1;
                         break;

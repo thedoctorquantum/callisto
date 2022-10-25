@@ -1,8 +1,10 @@
 
-var message = "hello, world!";
+var message = "\t\"hello, world!\"\n";
 var message_len = $sizeof(message);
 
-var other_message = "bye, world!";
+var buffer = "\x40\x00\x01\x02\xff\xaf\xff";
+
+var other_message = "bye, world!\x40@";
 var other_message_len = $sizeof(other_message);
 
 import proc puts;

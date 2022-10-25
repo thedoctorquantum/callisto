@@ -266,15 +266,103 @@ pub fn parseVar(self: *@This()) !void
     switch (self.token_tags[value_token])
     {
         .literal_string => {
-            const string = token_string[1..token_string.len - 1];
-            const data_offset = self.ir.data.items.len;
+            const string = token_string[1..token_string.len];
 
-            try self.ir.data.appendSlice(self.allocator, string);
+            const data_offset = self.ir.data.items.len;
+            var data_size: usize = 0;
+
+            //parse the string literal
+            {
+                var state: enum 
+                {
+                    start,
+                    escape,
+                    escape_hex,
+                } = .start;
+
+                var char_index: usize = 0;
+
+                while (char_index < string.len) : (char_index += 1)
+                {
+                    const char = string[char_index];
+
+                    switch (state)
+                    {
+                        .start => {
+                            switch (char)
+                            {
+                                '\\' => {
+                                    state = .escape;
+                                },
+                                '"' => break,
+                                else => {
+                                    try self.ir.data.append(self.allocator, char);
+                                },
+                            }
+                        },
+                        .escape => {
+                            switch (char)
+                            {
+                                'n' => {
+                                    try self.ir.data.append(self.allocator, '\n');
+                                    state = .start;
+                                },
+                                'r' => {
+                                    try self.ir.data.append(self.allocator, '\r');
+                                    state = .start;
+                                },
+                                't' => {
+                                    try self.ir.data.append(self.allocator, '\t');
+                                    state = .start;
+                                },
+                                '\\' => {
+                                    try self.ir.data.append(self.allocator, '\\');
+                                    state = .start;
+                                },
+                                '\'' => {
+                                    try self.ir.data.append(self.allocator, '\'');
+                                    state = .start;
+                                },                                
+                                '\"' => {
+                                    try self.ir.data.append(self.allocator, '\"');
+                                    state = .start;
+                                },
+                                'x' => {
+                                    state = .escape_hex;
+                                },
+                                else => unreachable,
+                            }
+                        },
+                        .escape_hex => {
+                            switch (char)
+                            {
+                                '0'...'9', 'a'...'f', 'A'...'F' => {},
+                                else => {
+                                    //\x00.
+                                    const digit_offset = char_index - 2;
+                                    const digit = try std.fmt.parseUnsigned(u8, string[digit_offset..digit_offset + 2], 16);
+
+                                    std.log.info("hex digit: {s}", .{ string[digit_offset..digit_offset + 2] });
+
+                                    try self.ir.data.append(self.allocator, digit);
+
+                                    state = .start;
+                                    char_index -= 1;
+                                },
+                            }
+                        },
+                    }
+                }
+
+                data_size = self.ir.data.items.len - data_offset;
+            }
+
+            // try self.ir.data.appendSlice(self.allocator, string);
 
             const symbol = try self.ir.addGlobal(.{ 
                 .data = .{
                     .offset = @intCast(u32, data_offset), 
-                    .size = @intCast(u32, string.len), 
+                    .size = @intCast(u32, data_size), 
                 },
             });
 
@@ -505,121 +593,93 @@ pub fn parseInstruction(self: *@This()) !void
     var read_operand_index: usize = 0;
     var read_operands: [2]IR.Statement.Instruction.Operand = .{ .empty, .empty };
 
-    // I think this is a bug?
-    // if (self.eatToken(.semicolon) == null)
+    while (true)
     {
-        while (true)
+        const operand_token = (self.parseIntegerLiteral() catch 
+        self.eatToken(.argument_register) orelse 
+        self.eatToken(.context_register) orelse 
+        self.parseBuiltinFunction() catch
+            {                    
+                const identifier = self.parseNamespacedIdentifier() catch break;
+
+                const symbol = self.getSymbol(identifier) catch block: 
+                {
+                    try self.definePatch(identifier, @intCast(u32, self.ir.statements.items.len), @intCast(u32, read_operand_index));
+
+                    if (IR.isBlockTerminatorOperation(opcode))
+                    {
+                        try self.basic_block_patches.put(self.allocator, identifier, .{
+                            .basic_block = @intCast(u32, basic_block_index),
+                            .is_next = opcode == .jump,
+                        });
+                    }
+
+                    break :block null;
+                };
+
+                if (symbol != null)
+                {
+                    read_operands[read_operand_index] = .{
+                        .symbol = symbol.?
+                    };
+                }
+
+                read_operand_index += 1;
+
+                if (self.eatToken(.comma) == null)
+                {
+                    break;
+                }
+
+                continue;
+            }).?;
+
+        switch (self.token_tags[operand_token])
         {
-            const operand_token = (self.parseIntegerLiteral() catch 
-            self.eatToken(.argument_register) orelse 
-            self.eatToken(.context_register) orelse 
-            self.parseBuiltinFunction() catch
-                {                    
-                    const identifier = self.parseNamespacedIdentifier() catch break;
+            .literal_integer => {
+                read_operands[read_operand_index] = .{ 
+                    .immediate = @bitCast(u64, try std.fmt.parseInt(i64, self.source[self.token_starts[operand_token]..self.token_ends[operand_token]], 10))
+                };
+            },
+            .literal_binary => {
+                read_operands[read_operand_index] = .{ 
+                    .immediate = @bitCast(u64, try std.fmt.parseInt(i64, self.source[self.token_starts[operand_token] + 2..self.token_ends[operand_token]], 2))
+                };
+            },
+            .literal_hex => {
+                read_operands[read_operand_index] = .{ 
+                    .immediate = @bitCast(u64, try std.fmt.parseInt(i64, self.source[self.token_starts[operand_token] + 2..self.token_ends[operand_token]], 16))
+                };
+            },
+            .literal_char => {
+                const char_literal = self.source[self.token_starts[operand_token]..self.token_ends[operand_token]];
 
-                    const symbol = self.getSymbol(identifier) catch block: 
-                    {
-                        try self.definePatch(identifier, @intCast(u32, self.ir.statements.items.len), @intCast(u32, read_operand_index));
-
-                        if (IR.isBlockTerminatorOperation(opcode))
-                        {
-                            try self.basic_block_patches.put(self.allocator, identifier, .{
-                                .basic_block = @intCast(u32, basic_block_index),
-                                .is_next = opcode == .jump,
-                            });
-                        }
-
-                        break :block null;
-                    };
-
-                    if (symbol != null)
-                    {
-                        read_operands[read_operand_index] = .{
-                            .symbol = symbol.?
-                        };
-                    }
-
-                    read_operand_index += 1;
-
-                    if (self.eatToken(.comma) == null)
-                    {
-                        break;
-                    }
-
-                    continue;
-                }).?;
-
-            switch (self.token_tags[operand_token])
-            {
-                .literal_integer => {
-                    read_operands[read_operand_index] = .{ 
-                        .immediate = @bitCast(u64, try std.fmt.parseInt(i64, self.source[self.token_starts[operand_token]..self.token_ends[operand_token]], 10))
-                    };
-                },
-                .literal_binary => {
-                    read_operands[read_operand_index] = .{ 
-                        .immediate = @bitCast(u64, try std.fmt.parseInt(i64, self.source[self.token_starts[operand_token] + 2..self.token_ends[operand_token]], 2))
-                    };
-                },
-                .literal_hex => {
-                    read_operands[read_operand_index] = .{ 
-                        .immediate = @bitCast(u64, try std.fmt.parseInt(i64, self.source[self.token_starts[operand_token] + 2..self.token_ends[operand_token]], 16))
-                    };
-                },
-                .literal_char => {
-                    const char_literal = self.source[self.token_starts[operand_token]..self.token_ends[operand_token]];
-
-                    read_operands[read_operand_index] = .{ 
-                        .immediate = char_literal[1]
-                    };
-                },
-                .argument_register => {
-                    read_operands[read_operand_index] = .{
-                        .register = Tokenizer.Token.getArgumentRegister(self.source[self.token_starts[operand_token]..self.token_ends[operand_token]]) orelse unreachable,
-                    };
-                },
-                .context_register => {
-                    read_operands[read_operand_index] = .{
-                        .register = Tokenizer.Token.getContextRegister(self.source[self.token_starts[operand_token]..self.token_ends[operand_token]]) orelse unreachable
-                    };
-                },
-                // .identifier => {
-                //     const identifier = self.source[self.token_starts[operand_token]..self.token_ends[operand_token]];
-                //     const symbol = self.getSymbol(identifier) catch block: 
-                //     {
-                //         try self.definePatch(identifier, @intCast(u32, self.ir.statements.items.len), @intCast(u32, read_operand_index));
-
-                //         if (IR.isBlockTerminatorOperation(opcode))
-                //         {
-                //             try self.basic_block_patches.put(self.allocator, identifier, .{
-                //                 .basic_block = @intCast(u32, basic_block_index),
-                //                 .is_next = opcode == .jump,
-                //             });
-                //         }
-
-                //         break :block null;
-                //     };
-
-                //     if (symbol != null)
-                //     {
-                //         read_operands[read_operand_index] = .{
-                //             .symbol = symbol.?
-                //         };
-                //     }
-                // },
-                else => unreachable,
-            }
-
-            read_operand_index += 1;
-
-            if (self.eatToken(.comma) == null)
-            {
-                break;
-            }
+                read_operands[read_operand_index] = .{ 
+                    .immediate = char_literal[1]
+                };
+            },
+            .argument_register => {
+                read_operands[read_operand_index] = .{
+                    .register = Tokenizer.Token.getArgumentRegister(self.source[self.token_starts[operand_token]..self.token_ends[operand_token]]) orelse unreachable,
+                };
+            },
+            .context_register => {
+                read_operands[read_operand_index] = .{
+                    .register = Tokenizer.Token.getContextRegister(self.source[self.token_starts[operand_token]..self.token_ends[operand_token]]) orelse unreachable
+                };
+            },
+            else => unreachable,
         }
 
-        _ = try self.expectToken(.semicolon);
+        read_operand_index += 1;
+
+        if (self.eatToken(.comma) == null)
+        {
+            break;
+        }
     }
+
+    _ = try self.expectToken(.semicolon);
 
     std.log.info("\nparseInstruction\n", .{});
 
